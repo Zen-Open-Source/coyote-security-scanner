@@ -1,0 +1,61 @@
+COYOTE - Progress & Learnings
+=============================
+
+Story 1: Project Structure Setup ✓
+- Created coyote/ package with __init__.py, __main__.py
+- Created requirements.txt (rich, pyyaml)
+- Created config.example.yaml with all documented options
+
+Story 2: Patterns Module ✓
+- 17 secret patterns (AWS, GitHub, Slack, OpenAI, Anthropic, Stripe, etc.)
+- 26 sensitive file patterns (.env, *.pem, *.key, id_rsa, etc.)
+- 9 security smell patterns (debug mode, eval, CORS, internal IPs, etc.)
+- Gotcha: Python 3.9 needs `from __future__ import annotations` for `X | None` syntax
+
+Story 3: Scanner Module ✓
+- Walks repo tree respecting exclusions (paths, extensions, file size)
+- Checks sensitive filenames (exact + glob match)
+- Scans file contents line-by-line against secret and smell patterns
+- Checks .gitignore coverage and flags large files >10MB
+- AWS Secret Key pattern requires nearby context to reduce false positives
+- Note: Scanner self-detects patterns in its own source - expected behavior
+
+Story 4: ASCII Art Module ✓
+- Four poses: idle (o.o), alert (O O !), scanning (-.-), all_clear (^.^)
+- Each pose has multiple rotating quotes
+
+Story 5: TUI Module ✓
+- Rich Layout: header, coyote panel (left), info+results (right), footer
+- Interactive mode with keyboard input (Q/S/R/C)
+- Single-scan mode for CLI usage
+- Threaded scanning so TUI stays responsive
+
+Story 6: Bash Watcher Loop ✓
+- Polls remote for new commits via fetch + HEAD comparison
+- Clones repo on first run if URL provided
+- --once, --interactive, --report flags
+- Loads config from YAML
+- Colored logging with timestamps
+- Ctrl+C graceful shutdown
+
+Story 7: Config Module ✓
+- Dataclass-based config with sensible defaults
+- YAML loading with nested dict-to-dataclass mapping
+- Falls back to defaults if no config file
+
+Story 8: Reporter Module ✓
+- JSON reports with full structured data
+- Markdown reports grouped by severity with icons
+- Masked secret text in output (first 4 + last 4 chars)
+- Timestamped filenames in report dir
+
+Story 9: Integration ✓
+- __main__.py entry point: python3 -m coyote
+- coyote.sh calls python3 -m coyote.tui
+- All modules import cleanly
+- Integration test with fake secrets: all detections working
+
+Story 10: Polish ✓
+- All 8 Python modules compile cleanly on Python 3.9
+- .gitignore updated for reports/, watched_repo/, config.yaml
+- Future improvements: git history scanning, webhook notifications

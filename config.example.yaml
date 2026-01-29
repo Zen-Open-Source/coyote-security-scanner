@@ -1,0 +1,27 @@
+target:
+  repo_url: "https://github.com/user/repo"
+  branch: "main"
+  local_path: "./watched_repo"
+
+polling:
+  interval_seconds: 60
+
+scan:
+  exclude_paths:
+    - "node_modules/"
+    - "venv/"
+    - ".git/"
+    - "vendor/"
+    - "__pycache__/"
+  exclude_extensions:
+    - ".min.js"
+    - ".map"
+    - ".lock"
+  max_file_size_mb: 5
+
+notifications:
+  console: true
+
+output:
+  report_dir: "./reports"
+  format: ["json", "markdown"]
