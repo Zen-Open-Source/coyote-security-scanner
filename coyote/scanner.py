@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,42 @@ from .patterns import (
     PatternMatch,
     Severity,
 )
+
+
+def generate_finding_id(
+    rule_name: str,
+    file_path: str,
+    line_number: int,
+    matched_value: str = "",
+) -> str:
+    """
+    Generate a stable, deterministic ID for a finding.
+
+    The ID is a truncated SHA-256 hash of the finding's key attributes.
+    This enables:
+    - Diffing findings across scans (detect new vs existing issues)
+    - Suppressing specific findings by ID
+    - Tracking finding lifecycle over time
+
+    The ID will remain stable as long as the same issue exists at the same
+    location. If the file, line, or matched value changes, the ID changes.
+
+    Args:
+        rule_name: The pattern/rule that matched (e.g., "AWS Access Key")
+        file_path: Relative path to the file
+        line_number: Line number where the finding was detected (0 for file-level)
+        matched_value: The actual matched text (or empty for file-level findings)
+
+    Returns:
+        An 8-character hexadecimal ID (e.g., "a1b2c3d4")
+    """
+    # Build a deterministic string from the finding's key attributes
+    # Using pipe separator to avoid collisions from concatenation
+    id_source = f"{rule_name}|{file_path}|{line_number}|{matched_value}"
+
+    # Hash and truncate to 8 chars (32 bits) - enough for uniqueness in a repo
+    hash_bytes = hashlib.sha256(id_source.encode("utf-8")).hexdigest()
+    return hash_bytes[:8]
 
 
 @dataclass
@@ -203,6 +240,7 @@ class Scanner:
                     line_number=0,
                     line_content="",
                     description=f"{desc}: {filename}",
+                    finding_id=generate_finding_id("Sensitive File", rel_path, 0, filename),
                 ))
 
             # Glob match
@@ -215,6 +253,7 @@ class Scanner:
                         line_number=0,
                         line_content="",
                         description=f"{desc}: {filename}",
+                        finding_id=generate_finding_id("Sensitive File", rel_path, 0, filename),
                     ))
                     break  # one match per glob set is enough
 
@@ -244,6 +283,7 @@ class Scanner:
                         # Mask the matched text for reporting
                         matched = match.group(0)
                         masked = matched[:4] + "..." + matched[-4:] if len(matched) > 12 else "***"
+                        # Use the actual matched value for ID generation (ensures stability)
                         result.findings.append(PatternMatch(
                             rule_name=sp.name,
                             severity=sp.severity,
@@ -252,13 +292,15 @@ class Scanner:
                             line_content=stripped[:200],
                             description=sp.description,
                             matched_text=masked,
+                            finding_id=generate_finding_id(sp.name, rel_path, line_num, matched),
                         ))
 
                 # Check smell patterns
                 for smell in SMELL_PATTERNS:
                     if smell.file_extensions and ext not in smell.file_extensions:
                         continue
-                    if smell.pattern.search(stripped):
+                    smell_match = smell.pattern.search(stripped)
+                    if smell_match:
                         result.findings.append(PatternMatch(
                             rule_name=smell.name,
                             severity=smell.severity,
@@ -266,6 +308,7 @@ class Scanner:
                             line_number=line_num,
                             line_content=stripped[:200],
                             description=smell.description,
+                            finding_id=generate_finding_id(smell.name, rel_path, line_num, smell_match.group(0)),
                         ))
 
     def _check_gitignore(self, result: ScanResult) -> None:
@@ -279,6 +322,7 @@ class Scanner:
                 line_number=0,
                 line_content="",
                 description="No .gitignore file found - secrets may be accidentally committed",
+                finding_id=generate_finding_id("Missing .gitignore", ".gitignore", 0, ""),
             ))
             return
 
@@ -294,6 +338,7 @@ class Scanner:
                 missing.append(pattern)
 
         if missing:
+            # Use sorted missing patterns in ID for stability
             result.findings.append(PatternMatch(
                 rule_name="Incomplete .gitignore",
                 severity=Severity.LOW,
@@ -301,6 +346,7 @@ class Scanner:
                 line_number=0,
                 line_content="",
                 description=f".gitignore missing patterns: {', '.join(missing[:5])}{'...' if len(missing) > 5 else ''}",
+                finding_id=generate_finding_id("Incomplete .gitignore", ".gitignore", 0, ",".join(sorted(missing))),
             ))
 
     def _check_large_files(self, result: ScanResult) -> None:
@@ -325,6 +371,7 @@ class Scanner:
                             line_number=0,
                             line_content="",
                             description=f"Large file ({size_mb:.1f} MB) shouldn't be in repository",
+                            finding_id=generate_finding_id("Large File", rel_path, 0, str(size)),
                         ))
                 except OSError:
                     continue

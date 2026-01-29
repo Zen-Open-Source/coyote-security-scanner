@@ -12,6 +12,7 @@ from .scanner import ScanResult
 
 def _finding_to_dict(f) -> dict:
     return {
+        "id": f.finding_id,  # Stable ID for diffing/suppression
         "rule": f.rule_name,
         "severity": f.severity.value,
         "file": f.file_path,
@@ -89,6 +90,7 @@ def generate_markdown_report(result: ScanResult, commit_hash: str = "") -> str:
                 loc += f":{f.line_number}"
             loc += "`"
             lines.append(f"- **{f.rule_name}**: {f.description}")
+            lines.append(f"  - ID: `{f.finding_id}`")
             lines.append(f"  - Location: {loc}")
             if f.matched_text:
                 lines.append(f"  - Match: `{f.matched_text}`")

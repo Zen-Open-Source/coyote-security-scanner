@@ -125,8 +125,9 @@ class CoyoteTUI:
 
         table = Table(show_header=True, header_style="bold", expand=True, show_lines=False)
         table.add_column("Sev", width=4, justify="center")
-        table.add_column("Rule", width=22)
-        table.add_column("File", width=28)
+        table.add_column("ID", width=8, justify="left")  # Stable finding ID for reference
+        table.add_column("Rule", width=20)
+        table.add_column("File", width=26)
         table.add_column("Description", ratio=1)
 
         # Sort: HIGH first, then MEDIUM, then LOW
@@ -151,9 +152,10 @@ class CoyoteTUI:
 
             table.add_row(
                 Text(label, style=style),
+                Text(f.finding_id, style="dim"),  # Show ID in dim style
                 Text(f.rule_name, style="white"),
-                Text(loc[:28], style="cyan"),
-                Text(f.description[:50], style="dim white"),
+                Text(loc[:26], style="cyan"),
+                Text(f.description[:45], style="dim white"),
             )
 
         content_parts = [table]
