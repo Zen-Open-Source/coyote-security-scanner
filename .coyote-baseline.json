@@ -1,0 +1,185 @@
+{
+  "version": "0.3",
+  "timestamp": "2026-01-30T04:21:46.120377+00:00",
+  "commit": "8d6156a",
+  "repo_path": "/Users/morganlinton/Documents/coding/coyote-repo-scanner",
+  "summary": {
+    "total": 17,
+    "high": 9,
+    "medium": 7,
+    "low": 1,
+    "files_scanned": 18
+  },
+  "findings": [
+    {
+      "finding_id": "3a0f62c1",
+      "rule_name": "Private Key",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 188,
+      "line_content": "| Private Keys | `-----BEGIN RSA PRIVATE KEY-----` etc. |",
+      "description": "Private key block detected",
+      "matched_text": "----...----"
+    },
+    {
+      "finding_id": "c23414d8",
+      "rule_name": "Basic Auth URL",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 191,
+      "line_content": "| Basic Auth URLs | `https://user:pass@host/...` |",
+      "description": "URL with embedded credentials detected",
+      "matched_text": "http...ass@"
+    },
+    {
+      "finding_id": "6e282e66",
+      "rule_name": "Permissive CORS",
+      "severity": "MEDIUM",
+      "file_path": "README.md",
+      "line_number": 213,
+      "line_content": "| `Access-Control-Allow-Origin: *` | Overly permissive CORS |",
+      "description": "Overly permissive CORS configuration (allows all origins)",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "6a03b99b",
+      "rule_name": "Security Debt Marker",
+      "severity": "MEDIUM",
+      "file_path": "README.md",
+      "line_number": 216,
+      "line_content": "| `TODO: security`, `FIXME: auth` | Security debt markers |",
+      "description": "Security-related TODO/FIXME comment found",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "fedf1d24",
+      "rule_name": "Hardcoded Internal IP",
+      "severity": "MEDIUM",
+      "file_path": "README.md",
+      "line_number": 217,
+      "line_content": "| `192.168.x.x`, `10.x.x.x` | Hardcoded internal IPs |",
+      "description": "Hardcoded internal/private IP address detected",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "7bc5f7ea",
+      "rule_name": "AWS Access Key",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 310,
+      "line_content": "AWS_ACCESS_KEY = \"AKIAIOSFODNN7EXAMPLE\"",
+      "description": "AWS Access Key ID detected",
+      "matched_text": "AKIA...MPLE"
+    },
+    {
+      "finding_id": "c476dd82",
+      "rule_name": "AWS Secret Key",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 311,
+      "line_content": "AWS_SECRET_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"",
+      "description": "Possible AWS Secret Access Key detected",
+      "matched_text": "wJal...EKEY"
+    },
+    {
+      "finding_id": "f427eb82",
+      "rule_name": "Generic Secret",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 313,
+      "line_content": "password = \"supersecretpassword123\"",
+      "description": "Hardcoded secret/password assignment detected",
+      "matched_text": "pass...123\""
+    },
+    {
+      "finding_id": "fe40edd9",
+      "rule_name": "Security Debt Marker",
+      "severity": "MEDIUM",
+      "file_path": "README.md",
+      "line_number": 324,
+      "line_content": "// TODO: security - fix this injection vulnerability",
+      "description": "Security-related TODO/FIXME comment found",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "431f67fa",
+      "rule_name": "AWS Access Key",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 398,
+      "line_content": "    f.write('AWS_KEY = \"AKIAIOSFODNN7EXAMPLE\"\\n')",
+      "description": "AWS Access Key ID detected",
+      "matched_text": "AKIA...MPLE"
+    },
+    {
+      "finding_id": "8a760328",
+      "rule_name": "AWS Access Key",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 427,
+      "line_content": "    (\"AWS Access Key\", \"AKIAIOSFODNN7EXAMPLE\", True),",
+      "description": "AWS Access Key ID detected",
+      "matched_text": "AKIA...MPLE"
+    },
+    {
+      "finding_id": "006b699d",
+      "rule_name": "GitHub Token",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 428,
+      "line_content": "    (\"GitHub Token\", \"ghp_1234567890abcdefghijklmnopqrstuvwxyz12\", True),",
+      "description": "GitHub personal access token detected",
+      "matched_text": "ghp_...yz12"
+    },
+    {
+      "finding_id": "4efeb6d6",
+      "rule_name": "Slack Token",
+      "severity": "HIGH",
+      "file_path": "README.md",
+      "line_number": 430,
+      "line_content": "    (\"Slack Token\", \"xoxb-123-456-abc\", True),",
+      "description": "Slack API token detected",
+      "matched_text": "xoxb...-abc"
+    },
+    {
+      "finding_id": "28e8e417",
+      "rule_name": "Permissive CORS",
+      "severity": "MEDIUM",
+      "file_path": "coyote/patterns.py",
+      "line_number": 228,
+      "line_content": "        pattern=re.compile(r'Access-Control-Allow-Origin.*\\*'),",
+      "description": "Overly permissive CORS configuration (allows all origins)",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "4e4fa226",
+      "rule_name": "Eval Usage (Python)",
+      "severity": "MEDIUM",
+      "file_path": "coyote/patterns.py",
+      "line_number": 237,
+      "line_content": "        description=\"Use of eval() poses code injection risk\",",
+      "description": "Use of eval() poses code injection risk",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "a99f6e9d",
+      "rule_name": "Eval Usage (Python)",
+      "severity": "MEDIUM",
+      "file_path": "coyote/patterns.py",
+      "line_number": 244,
+      "line_content": "        description=\"Use of eval() poses code injection risk\",",
+      "description": "Use of eval() poses code injection risk",
+      "matched_text": ""
+    },
+    {
+      "finding_id": "595f62de",
+      "rule_name": "Incomplete .gitignore",
+      "severity": "LOW",
+      "file_path": ".gitignore",
+      "line_number": 0,
+      "line_content": "",
+      "description": ".gitignore missing patterns: *.pem, *.key, id_rsa, *.p12, *.pfx...",
+      "matched_text": ""
+    }
+  ]
+}

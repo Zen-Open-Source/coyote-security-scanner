@@ -18,6 +18,15 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from . import __version__
+from .baseline import (
+    DEFAULT_BASELINE_PATH,
+    DiffResult,
+    baseline_exists,
+    diff_scans,
+    generate_diff_summary,
+    save_baseline,
+)
 from .config import CoyoteConfig, load_config
 from .coyote_art import CoyotePose, get_art, get_quote
 from .patterns import Severity
@@ -200,7 +209,7 @@ class CoyoteTUI:
 
         # Header
         header = Panel(
-            Align.center(Text("COYOTE v1.0 - Repository Security Scanner", style="bold cyan")),
+            Align.center(Text(f"COYOTE v{__version__} - Repository Security Scanner", style="bold cyan")),
             style="cyan",
         )
         layout["header"].update(header)
@@ -267,6 +276,116 @@ class CoyoteTUI:
             commit_hash=self.last_commit,
         )
 
+    def _build_diff_panel(self, diff: DiffResult) -> Panel:
+        """Build a panel showing diff results."""
+        parts = []
+
+        # Summary header
+        summary = Text()
+        summary.append("  NEW:      ", style="bold")
+        summary.append(f"{diff.new_count:3d}", style="bold red" if diff.new_count > 0 else "green")
+        if diff.new_count > 0:
+            summary.append(f"  ({diff.new_high_count} HIGH, {diff.new_medium_count} MED, {diff.new_low_count} LOW)", style="dim")
+        summary.append("\n")
+        summary.append("  FIXED:    ", style="bold")
+        summary.append(f"{diff.fixed_count:3d}", style="bold green" if diff.fixed_count > 0 else "dim")
+        summary.append("\n")
+        summary.append("  EXISTING: ", style="bold")
+        summary.append(f"{diff.existing_count:3d}", style="dim")
+        parts.append(summary)
+
+        # New findings table
+        if diff.new_findings:
+            parts.append(Text("\n  New Findings:", style="bold red"))
+            table = Table(show_header=True, header_style="bold", expand=True, show_lines=False)
+            table.add_column("Sev", width=4, justify="center")
+            table.add_column("ID", width=8)
+            table.add_column("Rule", width=18)
+            table.add_column("File", width=26)
+
+            for f in diff.new_findings[:10]:
+                sev_style = {
+                    Severity.HIGH: ("bold red", "HIGH"),
+                    Severity.MEDIUM: ("bold yellow", " MED"),
+                    Severity.LOW: ("bold blue", " LOW"),
+                }.get(f.severity, ("white", " ???"))
+                style, label = sev_style
+                loc = f.file_path
+                if f.line_number > 0:
+                    loc += f":{f.line_number}"
+                table.add_row(
+                    Text(label, style=style),
+                    Text(f.finding_id, style="dim"),
+                    Text(f.rule_name, style="white"),
+                    Text(loc[:26], style="cyan"),
+                )
+            parts.append(table)
+            if len(diff.new_findings) > 10:
+                parts.append(Text(f"  ... and {len(diff.new_findings) - 10} more new findings", style="dim"))
+
+        # Fixed findings summary
+        if diff.fixed_findings:
+            parts.append(Text(f"\n  Fixed Findings: {diff.fixed_count} issues resolved", style="bold green"))
+
+        # Determine border style
+        if diff.new_count > 0:
+            border_style = "red"
+            title = f"[bold red]Scan Diff: {diff.new_count} NEW findings[/]"
+        elif diff.fixed_count > 0:
+            border_style = "green"
+            title = f"[bold green]Scan Diff: {diff.fixed_count} findings FIXED[/]"
+        else:
+            border_style = "blue"
+            title = "[bold blue]Scan Diff: No changes[/]"
+
+        return Panel(Group(*parts), title=title, border_style=border_style)
+
+    def run_diff_scan(self, baseline_path: str = DEFAULT_BASELINE_PATH) -> DiffResult:
+        """Run a scan and compare against baseline."""
+        self.console.print(Panel(
+            Align.center(Text(f"COYOTE v{__version__} - Repository Security Scanner", style="bold cyan")),
+            style="cyan",
+        ))
+
+        art = get_art(CoyotePose.SCANNING)
+        self.console.print(Text(art, style="cyan"))
+        self.console.print("[yellow]Scanning and comparing to baseline...[/]\n")
+
+        # Run the scan
+        self.run_scan()
+
+        if self.scan_result is None:
+            self.console.print("[red]Scan failed![/]")
+            return DiffResult()
+
+        # Compare against baseline
+        try:
+            diff = diff_scans(self.scan_result, baseline_path, self.last_commit)
+        except FileNotFoundError:
+            self.console.print(f"[red]Baseline not found: {baseline_path}[/]")
+            self.console.print("[yellow]Run with --save-baseline first to create a baseline.[/]")
+            return DiffResult()
+
+        # Display diff results
+        self.console.print(self._build_diff_panel(diff))
+        self.console.print()
+
+        # Show appropriate coyote
+        if diff.new_count > 0:
+            art = get_art(CoyotePose.ALERT)
+            self.console.print(Text(art, style="red"))
+            self.console.print(f"[bold red]Found {diff.new_count} NEW issues![/]")
+        elif diff.fixed_count > 0:
+            art = get_art(CoyotePose.ALL_CLEAR)
+            self.console.print(Text(art, style="green"))
+            self.console.print(f"[bold green]{diff.fixed_count} issues fixed! No new issues.[/]")
+        else:
+            art = get_art(CoyotePose.IDLE)
+            self.console.print(Text(art, style="cyan"))
+            self.console.print("[bold cyan]No changes since baseline.[/]")
+
+        return diff
+
     def run_interactive(self) -> None:
         """Run the interactive TUI with live updates."""
         self.running = True
@@ -318,7 +437,7 @@ class CoyoteTUI:
     def run_single_scan(self) -> ScanResult:
         """Run a single scan and display results (non-interactive)."""
         self.console.print(Panel(
-            Align.center(Text("COYOTE v1.0 - Repository Security Scanner", style="bold cyan")),
+            Align.center(Text(f"COYOTE v{__version__} - Repository Security Scanner", style="bold cyan")),
             style="cyan",
         ))
 
@@ -353,6 +472,29 @@ def main():
     parser.add_argument("--repo", help="Path to repository to scan (overrides config)")
     parser.add_argument("--interactive", "-i", action="store_true", help="Run interactive TUI")
     parser.add_argument("--report", "-r", action="store_true", help="Save reports after scan")
+
+    # Baseline/diff options
+    parser.add_argument(
+        "--save-baseline",
+        action="store_true",
+        help="Save current scan as baseline for future comparisons"
+    )
+    parser.add_argument(
+        "--diff",
+        action="store_true",
+        help="Compare scan against saved baseline and show new/fixed findings"
+    )
+    parser.add_argument(
+        "--baseline-path",
+        default=DEFAULT_BASELINE_PATH,
+        help=f"Path to baseline file (default: {DEFAULT_BASELINE_PATH})"
+    )
+    parser.add_argument(
+        "--fail-on-new",
+        action="store_true",
+        help="Exit with code 1 if new findings are detected (useful for CI)"
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -361,14 +503,38 @@ def main():
 
     tui = CoyoteTUI(config)
 
-    if args.interactive:
-        tui.run_interactive()
-    else:
-        tui.run_single_scan()
+    # Handle diff mode
+    if args.diff:
+        diff = tui.run_diff_scan(args.baseline_path)
         if args.report:
             saved = tui.save_report()
             for path in saved:
                 tui.console.print(f"[dim]Report saved: {path}[/]")
+        # Exit with error if new findings and --fail-on-new
+        if args.fail_on_new and diff.has_new_findings:
+            tui.console.print(f"[red]Failing due to {diff.new_count} new findings.[/]")
+            sys.exit(1)
+        return
+
+    # Handle interactive mode
+    if args.interactive:
+        tui.run_interactive()
+        return
+
+    # Standard scan
+    tui.run_single_scan()
+
+    # Save baseline if requested
+    if args.save_baseline and tui.scan_result:
+        path = save_baseline(tui.scan_result, args.baseline_path, tui.last_commit)
+        tui.console.print(f"[bold green]Baseline saved: {path}[/]")
+        tui.console.print(f"[dim]Contains {tui.scan_result.total_count} findings. Use --diff to compare future scans.[/]")
+
+    # Save reports if requested
+    if args.report:
+        saved = tui.save_report()
+        for path in saved:
+            tui.console.print(f"[dim]Report saved: {path}[/]")
 
 
 if __name__ == "__main__":

@@ -89,10 +89,14 @@ python3 -m coyote --repo /path/to/your/repo --interactive
 python3 -m coyote [OPTIONS]
 
 Options:
-  --repo PATH        Path to repository to scan
-  --config FILE      Path to config file (default: config.yaml)
-  --interactive, -i  Run interactive TUI
-  --report, -r       Save reports after scan
+  --repo PATH          Path to repository to scan
+  --config FILE        Path to config file (default: config.yaml)
+  --interactive, -i    Run interactive TUI
+  --report, -r         Save reports after scan
+  --save-baseline      Save scan as baseline for future comparisons
+  --diff               Compare scan against baseline (show new/fixed)
+  --baseline-path      Path to baseline file (default: .coyote-baseline.json)
+  --fail-on-new        Exit with code 1 if new findings (for CI)
 ```
 
 ### Bash Watcher
@@ -109,6 +113,10 @@ Options:
   --interactive, -i    Launch interactive TUI
   --report, -r         Save reports after scan
   --config FILE        Config file path (default: config.yaml)
+  --save-baseline      Save scan as baseline for future comparisons
+  --diff               Compare scan against baseline (show new/fixed)
+  --baseline-path      Path to baseline file (default: .coyote-baseline.json)
+  --fail-on-new        Exit with code 1 if new findings (for CI)
   --help, -h           Show help
 ```
 
@@ -221,6 +229,92 @@ output:
 - Missing `.gitignore` file
 - Incomplete `.gitignore` (missing common secret patterns)
 - Large binary files (>10MB)
+
+## Scan Diffing / Baseline Mode
+
+Compare scans over time to track new vs. fixed vs. existing findings. Perfect for CI/CD pipelines where you only want to fail on **new** security issues.
+
+### How It Works
+
+1. **Save a baseline** after your initial scan (or when you've triaged existing findings)
+2. **Run diff scans** against the baseline to see what's changed
+3. **Fail on new findings** in CI to prevent security regressions
+
+### Usage
+
+```bash
+# Step 1: Run initial scan and save as baseline
+python3 -m coyote --repo /path/to/repo --save-baseline
+
+# Step 2: Later, run a diff scan to see changes
+python3 -m coyote --repo /path/to/repo --diff
+
+# Step 3: In CI, fail if new findings are introduced
+python3 -m coyote --repo /path/to/repo --diff --fail-on-new
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--save-baseline` | Save current scan as baseline for future comparisons |
+| `--diff` | Compare current scan against saved baseline |
+| `--baseline-path PATH` | Custom baseline file path (default: `.coyote-baseline.json`) |
+| `--fail-on-new` | Exit with code 1 if new findings detected (for CI) |
+
+### Diff Output
+
+When running with `--diff`, you'll see a breakdown of:
+
+```
+╭────────────────────── Scan Diff: 3 NEW findings ──────────────────────╮
+│   NEW:        3  (2 HIGH, 1 MED, 0 LOW)                               │
+│   FIXED:      1                                                       │
+│   EXISTING:  12                                                       │
+│                                                                       │
+│   Baseline: 2024-01-15T10:30:00Z (commit: abc1234)                    │
+╰───────────────────────────────────────────────────────────────────────╯
+```
+
+- **NEW**: Findings in current scan but not in baseline (requires attention)
+- **FIXED**: Findings in baseline but not in current scan (resolved issues)
+- **EXISTING**: Findings present in both scans (known issues)
+
+### CI/CD Integration
+
+```yaml
+# GitHub Actions example
+- name: Security Scan
+  run: |
+    # First run: create baseline (commit this file)
+    # python3 -m coyote --repo . --save-baseline
+
+    # Subsequent runs: fail only on new findings
+    python3 -m coyote --repo . --diff --fail-on-new
+```
+
+### Baseline File Format
+
+The baseline is stored as JSON (`.coyote-baseline.json` by default):
+
+```json
+{
+  "version": "0.3",
+  "timestamp": "2024-01-15T10:30:00+00:00",
+  "commit": "abc1234",
+  "summary": {
+    "total": 15,
+    "high": 3,
+    "medium": 8,
+    "low": 4
+  },
+  "findings": [...]
+}
+```
+
+**Tip**: Add `.coyote-baseline.json` to your `.gitignore` if you don't want to track it, or commit it if you want consistent baselines across your team.
+
+---
 
 ## Finding IDs
 
@@ -377,6 +471,28 @@ cat reports/coyote_report_*.json
 
 # Or watch with polling (Ctrl+C to stop)
 ./coyote.sh --repo-url https://github.com/octocat/Hello-World --interval 30
+```
+
+### Test Baseline / Diff Mode
+
+```bash
+# Step 1: Create a baseline from the test directory
+python3 -m coyote --repo /tmp/coyote-test --save-baseline --baseline-path /tmp/test-baseline.json
+
+# Step 2: Add a new security issue
+echo 'GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"' >> /tmp/coyote-test/config.py
+
+# Step 3: Run diff to see the new finding
+python3 -m coyote --repo /tmp/coyote-test --diff --baseline-path /tmp/test-baseline.json
+
+# Expected output:
+#   NEW:        1  (1 HIGH, 0 MED, 0 LOW)   <- The new GitHub token
+#   FIXED:      0
+#   EXISTING:   8                           <- Original findings
+
+# Step 4: Test CI mode (should exit with code 1)
+python3 -m coyote --repo /tmp/coyote-test --diff --fail-on-new --baseline-path /tmp/test-baseline.json
+echo "Exit code: $?"  # Should print: Exit code: 1
 ```
 
 ### Unit Test the Scanner Module
@@ -567,7 +683,7 @@ The coyote character changes based on scanner state:
 - [ ] Entropy-based secret detection
 - [ ] Custom pattern definitions via config
 - [ ] CI/CD integration (GitHub Actions, GitLab CI)
-- [ ] Scan diffing (compare scans to detect new findings) - enabled by finding IDs
+- [x] ~~Scan diffing (compare scans to detect new findings)~~ - **Added in v0.3!**
 - [ ] Finding suppression by ID (ignore known false positives) - enabled by finding IDs
 
 ## License

@@ -26,6 +26,10 @@ INTERACTIVE=false
 CONFIG_FILE="config.yaml"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPORT=false
+SAVE_BASELINE=false
+DIFF_MODE=false
+BASELINE_PATH=".coyote-baseline.json"
+FAIL_ON_NEW=false
 
 # ─── Colors ─────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -107,6 +111,14 @@ parse_args() {
                 CONFIG_FILE="$2"; shift 2 ;;
             --report|-r)
                 REPORT=true; shift ;;
+            --save-baseline)
+                SAVE_BASELINE=true; shift ;;
+            --diff)
+                DIFF_MODE=true; shift ;;
+            --baseline-path)
+                BASELINE_PATH="$2"; shift 2 ;;
+            --fail-on-new)
+                FAIL_ON_NEW=true; shift ;;
             --help|-h)
                 echo "Coyote - Repository Security Watcher"
                 echo ""
@@ -121,6 +133,13 @@ parse_args() {
                 echo "  --interactive, -i    Launch interactive TUI"
                 echo "  --report, -r         Save reports after scan"
                 echo "  --config <file>      Config file path (default: config.yaml)"
+                echo ""
+                echo "Baseline/Diff Options:"
+                echo "  --save-baseline      Save scan as baseline for future comparisons"
+                echo "  --diff               Compare scan against baseline (show new/fixed)"
+                echo "  --baseline-path      Path to baseline file (default: .coyote-baseline.json)"
+                echo "  --fail-on-new        Exit with code 1 if new findings (for CI)"
+                echo ""
                 echo "  --help, -h           Show this help"
                 exit 0
                 ;;
@@ -243,6 +262,18 @@ run_scan() {
     local scan_args=("--repo" "$LOCAL_PATH" "--config" "$CONFIG_FILE")
     if [[ "$REPORT" == "true" ]]; then
         scan_args+=("--report")
+    fi
+    if [[ "$SAVE_BASELINE" == "true" ]]; then
+        scan_args+=("--save-baseline")
+    fi
+    if [[ "$DIFF_MODE" == "true" ]]; then
+        scan_args+=("--diff")
+    fi
+    if [[ "$BASELINE_PATH" != ".coyote-baseline.json" ]]; then
+        scan_args+=("--baseline-path" "$BASELINE_PATH")
+    fi
+    if [[ "$FAIL_ON_NEW" == "true" ]]; then
+        scan_args+=("--fail-on-new")
     fi
 
     python3 -m coyote.tui "${scan_args[@]}"
