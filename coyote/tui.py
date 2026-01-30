@@ -29,14 +29,16 @@ from .baseline import (
 )
 from .config import CoyoteConfig, load_config
 from .coyote_art import CoyotePose, get_art, get_quote
+from .notifications import NotificationConfig, load_notification_config, send_notifications
 from .patterns import Severity
 from .reporter import save_reports
 from .scanner import ScanResult, run_scan
 
 
 class CoyoteTUI:
-    def __init__(self, config: CoyoteConfig | None = None):
+    def __init__(self, config: CoyoteConfig | None = None, notification_config: NotificationConfig | None = None):
         self.config = config or load_config()
+        self.notification_config = notification_config or NotificationConfig()
         self.console = Console()
         self.pose = CoyotePose.IDLE
         self.quote_index = 0
@@ -44,6 +46,7 @@ class CoyoteTUI:
         self.last_commit = ""
         self.last_commit_time = ""
         self.scan_result: ScanResult | None = None
+        self.last_diff: DiffResult | None = None  # Track last diff for notifications
         self.running = False
         self.scan_in_progress = False
         self._lock = threading.Lock()
@@ -276,6 +279,20 @@ class CoyoteTUI:
             commit_hash=self.last_commit,
         )
 
+    def send_notification(self, diff: DiffResult | None = None) -> list[tuple[str, bool, str]]:
+        """Send webhook notifications if configured."""
+        if self.scan_result is None:
+            return []
+
+        repo_name = self.config.target.repo_url or self.config.target.local_path
+        results = send_notifications(
+            self.notification_config,
+            self.scan_result,
+            diff=diff,
+            repo_name=repo_name,
+        )
+        return results
+
     def _build_diff_panel(self, diff: DiffResult) -> Panel:
         """Build a panel showing diff results."""
         parts = []
@@ -466,6 +483,7 @@ class CoyoteTUI:
 def main():
     """Entry point for the TUI."""
     import argparse
+    import yaml
 
     parser = argparse.ArgumentParser(description="Coyote - Repository Security Scanner")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
@@ -495,13 +513,47 @@ def main():
         help="Exit with code 1 if new findings are detected (useful for CI)"
     )
 
+    # Notification options
+    parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Send webhook notifications (uses config file settings)"
+    )
+    parser.add_argument(
+        "--slack-webhook",
+        help="Slack webhook URL (overrides config)"
+    )
+    parser.add_argument(
+        "--discord-webhook",
+        help="Discord webhook URL (overrides config)"
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
     if args.repo:
         config.target.local_path = args.repo
 
-    tui = CoyoteTUI(config)
+    # Load notification config from config file
+    notification_config = NotificationConfig()
+    try:
+        with open(args.config, "r") as f:
+            config_dict = yaml.safe_load(f) or {}
+            notification_config = load_notification_config(config_dict)
+    except FileNotFoundError:
+        pass
+
+    # Override with CLI args
+    if args.notify:
+        notification_config.enabled = True
+    if args.slack_webhook:
+        notification_config.enabled = True
+        notification_config.slack_webhook_url = args.slack_webhook
+    if args.discord_webhook:
+        notification_config.enabled = True
+        notification_config.discord_webhook_url = args.discord_webhook
+
+    tui = CoyoteTUI(config, notification_config)
 
     # Handle diff mode
     if args.diff:
@@ -510,6 +562,14 @@ def main():
             saved = tui.save_report()
             for path in saved:
                 tui.console.print(f"[dim]Report saved: {path}[/]")
+        # Send notifications
+        if notification_config.enabled:
+            notif_results = tui.send_notification(diff=diff)
+            for service, success, msg in notif_results:
+                if success:
+                    tui.console.print(f"[dim green]{service}: {msg}[/]")
+                else:
+                    tui.console.print(f"[dim red]{service}: {msg}[/]")
         # Exit with error if new findings and --fail-on-new
         if args.fail_on_new and diff.has_new_findings:
             tui.console.print(f"[red]Failing due to {diff.new_count} new findings.[/]")
@@ -535,6 +595,15 @@ def main():
         saved = tui.save_report()
         for path in saved:
             tui.console.print(f"[dim]Report saved: {path}[/]")
+
+    # Send notifications
+    if notification_config.enabled:
+        notif_results = tui.send_notification()
+        for service, success, msg in notif_results:
+            if success:
+                tui.console.print(f"[dim green]{service}: {msg}[/]")
+            else:
+                tui.console.print(f"[dim red]{service}: {msg}[/]")
 
 
 if __name__ == "__main__":

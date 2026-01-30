@@ -20,7 +20,28 @@ scan:
   max_file_size_mb: 5
 
 notifications:
-  console: true
+  # Enable webhook notifications
+  enabled: false
+
+  # Slack Incoming Webhook URL
+  # Create at: https://api.slack.com/messaging/webhooks
+  slack_webhook_url: ""
+
+  # Discord Webhook URL
+  # Create in: Server Settings > Integrations > Webhooks
+  discord_webhook_url: ""
+
+  # When to send notifications
+  notify_on_completion: true       # Notify after every scan
+  notify_only_on_findings: false   # Only notify if findings exist
+  notify_only_on_new: false        # Only notify if NEW findings (diff mode)
+
+  # Minimum severity to trigger notification (LOW, MEDIUM, HIGH)
+  min_severity: "LOW"
+
+  # Include finding details in message
+  include_finding_list: true
+  max_findings_in_message: 10
 
 output:
   report_dir: "./reports"

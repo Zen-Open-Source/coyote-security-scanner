@@ -30,6 +30,9 @@ SAVE_BASELINE=false
 DIFF_MODE=false
 BASELINE_PATH=".coyote-baseline.json"
 FAIL_ON_NEW=false
+NOTIFY=false
+SLACK_WEBHOOK=""
+DISCORD_WEBHOOK=""
 
 # ─── Colors ─────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -119,6 +122,12 @@ parse_args() {
                 BASELINE_PATH="$2"; shift 2 ;;
             --fail-on-new)
                 FAIL_ON_NEW=true; shift ;;
+            --notify)
+                NOTIFY=true; shift ;;
+            --slack-webhook)
+                SLACK_WEBHOOK="$2"; shift 2 ;;
+            --discord-webhook)
+                DISCORD_WEBHOOK="$2"; shift 2 ;;
             --help|-h)
                 echo "Coyote - Repository Security Watcher"
                 echo ""
@@ -139,6 +148,11 @@ parse_args() {
                 echo "  --diff               Compare scan against baseline (show new/fixed)"
                 echo "  --baseline-path      Path to baseline file (default: .coyote-baseline.json)"
                 echo "  --fail-on-new        Exit with code 1 if new findings (for CI)"
+                echo ""
+                echo "Notification Options:"
+                echo "  --notify             Enable webhook notifications (uses config file)"
+                echo "  --slack-webhook URL  Slack webhook URL (overrides config)"
+                echo "  --discord-webhook URL Discord webhook URL (overrides config)"
                 echo ""
                 echo "  --help, -h           Show this help"
                 exit 0
@@ -274,6 +288,15 @@ run_scan() {
     fi
     if [[ "$FAIL_ON_NEW" == "true" ]]; then
         scan_args+=("--fail-on-new")
+    fi
+    if [[ "$NOTIFY" == "true" ]]; then
+        scan_args+=("--notify")
+    fi
+    if [[ -n "$SLACK_WEBHOOK" ]]; then
+        scan_args+=("--slack-webhook" "$SLACK_WEBHOOK")
+    fi
+    if [[ -n "$DISCORD_WEBHOOK" ]]; then
+        scan_args+=("--discord-webhook" "$DISCORD_WEBHOOK")
     fi
 
     python3 -m coyote.tui "${scan_args[@]}"

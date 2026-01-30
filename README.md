@@ -24,6 +24,8 @@ Coyote monitors public GitHub repos, detects new commits, and scans for security
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
 - **Multiple Output Formats**: JSON and Markdown reports
 - **Stable Finding IDs**: Deterministic IDs for each finding enable diffing, suppression, and tracking
+- **Scan Diffing**: Compare scans against a baseline to track new vs. fixed findings
+- **Webhook Notifications**: Get Slack/Discord alerts when security issues are detected
 - **Configurable**: YAML-based configuration with sensible defaults
 
 ## Installation
@@ -89,14 +91,17 @@ python3 -m coyote --repo /path/to/your/repo --interactive
 python3 -m coyote [OPTIONS]
 
 Options:
-  --repo PATH          Path to repository to scan
-  --config FILE        Path to config file (default: config.yaml)
-  --interactive, -i    Run interactive TUI
-  --report, -r         Save reports after scan
-  --save-baseline      Save scan as baseline for future comparisons
-  --diff               Compare scan against baseline (show new/fixed)
-  --baseline-path      Path to baseline file (default: .coyote-baseline.json)
-  --fail-on-new        Exit with code 1 if new findings (for CI)
+  --repo PATH            Path to repository to scan
+  --config FILE          Path to config file (default: config.yaml)
+  --interactive, -i      Run interactive TUI
+  --report, -r           Save reports after scan
+  --save-baseline        Save scan as baseline for future comparisons
+  --diff                 Compare scan against baseline (show new/fixed)
+  --baseline-path        Path to baseline file (default: .coyote-baseline.json)
+  --fail-on-new          Exit with code 1 if new findings (for CI)
+  --notify               Enable webhook notifications (uses config)
+  --slack-webhook URL    Slack webhook URL (overrides config)
+  --discord-webhook URL  Discord webhook URL (overrides config)
 ```
 
 ### Bash Watcher
@@ -105,19 +110,22 @@ Options:
 ./coyote.sh [OPTIONS]
 
 Options:
-  --repo-url URL       GitHub repo URL to watch
-  --branch NAME        Branch to watch (default: main)
-  --local-path PATH    Local clone path (default: ./watched_repo)
-  --interval SECONDS   Poll interval in seconds (default: 60)
-  --once               Run scan once and exit
-  --interactive, -i    Launch interactive TUI
-  --report, -r         Save reports after scan
-  --config FILE        Config file path (default: config.yaml)
-  --save-baseline      Save scan as baseline for future comparisons
-  --diff               Compare scan against baseline (show new/fixed)
-  --baseline-path      Path to baseline file (default: .coyote-baseline.json)
-  --fail-on-new        Exit with code 1 if new findings (for CI)
-  --help, -h           Show help
+  --repo-url URL         GitHub repo URL to watch
+  --branch NAME          Branch to watch (default: main)
+  --local-path PATH      Local clone path (default: ./watched_repo)
+  --interval SECONDS     Poll interval in seconds (default: 60)
+  --once                 Run scan once and exit
+  --interactive, -i      Launch interactive TUI
+  --report, -r           Save reports after scan
+  --config FILE          Config file path (default: config.yaml)
+  --save-baseline        Save scan as baseline for future comparisons
+  --diff                 Compare scan against baseline (show new/fixed)
+  --baseline-path        Path to baseline file (default: .coyote-baseline.json)
+  --fail-on-new          Exit with code 1 if new findings (for CI)
+  --notify               Enable webhook notifications (uses config)
+  --slack-webhook URL    Slack webhook URL (overrides config)
+  --discord-webhook URL  Discord webhook URL (overrides config)
+  --help, -h             Show help
 ```
 
 ### Programmatic Usage
@@ -316,6 +324,117 @@ The baseline is stored as JSON (`.coyote-baseline.json` by default):
 
 ---
 
+## Webhook Notifications
+
+Get instant alerts in Slack or Discord when Coyote detects security issues. Perfect for monitoring repos continuously.
+
+### Supported Platforms
+
+| Platform | Message Format |
+|----------|---------------|
+| **Slack** | Rich attachments with color-coded severity |
+| **Discord** | Embeds with severity breakdown and finding list |
+
+### Quick Start
+
+```bash
+# Send a one-time notification with results
+python3 -m coyote --repo /path/to/repo --slack-webhook "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+
+# Or Discord
+python3 -m coyote --repo /path/to/repo --discord-webhook "https://discord.com/api/webhooks/XXX/YYY"
+
+# Use with diff mode for "new findings only" alerts
+python3 -m coyote --repo /path/to/repo --diff --slack-webhook "https://hooks.slack.com/..."
+```
+
+### Configuration
+
+Add webhook settings to your `config.yaml`:
+
+```yaml
+notifications:
+  # Enable notifications
+  enabled: true
+
+  # Webhook URLs
+  slack_webhook_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+  discord_webhook_url: "https://discord.com/api/webhooks/XXX/YYY"
+
+  # When to notify
+  notify_on_completion: true       # Notify after every scan
+  notify_only_on_findings: false   # Only notify if findings exist
+  notify_only_on_new: false        # Only notify on NEW findings (diff mode)
+
+  # Minimum severity to trigger (LOW, MEDIUM, HIGH)
+  min_severity: "LOW"
+
+  # Include finding details in message
+  include_finding_list: true
+  max_findings_in_message: 10
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--notify` | Enable notifications using config file settings |
+| `--slack-webhook URL` | Slack webhook URL (overrides config) |
+| `--discord-webhook URL` | Discord webhook URL (overrides config) |
+
+### Example Slack Message
+
+```
+🚨 Coyote: 3 HIGH severity findings in my-repo
+
+┌─────────────────────────────────────┐
+│ HIGH: 3  │  MEDIUM: 5  │  LOW: 2   │
+├─────────────────────────────────────┤
+│ Findings:                           │
+│ • [HIGH] AWS Access Key - config.py │
+│ • [HIGH] Private Key - secrets.pem  │
+│ • [HIGH] Generic Secret - .env      │
+└─────────────────────────────────────┘
+```
+
+### Example Discord Message
+
+Discord notifications appear as rich embeds with:
+- Color-coded severity (red for HIGH, orange for MEDIUM, blue for LOW)
+- Finding count breakdown
+- List of detected issues with file locations
+- Repository name and scan timestamp
+
+### Setting Up Webhooks
+
+**Slack:**
+1. Go to [api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks)
+2. Create a new Slack app or use an existing one
+3. Enable "Incoming Webhooks"
+4. Create a webhook for your channel
+5. Copy the webhook URL
+
+**Discord:**
+1. Open Server Settings > Integrations > Webhooks
+2. Click "New Webhook"
+3. Choose the channel and customize the name/avatar
+4. Copy the webhook URL
+
+### Watcher Loop with Notifications
+
+```bash
+# Watch a repo and get Slack alerts on new findings
+./coyote.sh --repo-url https://github.com/org/repo \
+            --interval 300 \
+            --diff \
+            --notify \
+            --slack-webhook "https://hooks.slack.com/..."
+
+# The coyote will howl at you when it finds something! 🐺
+```
+
+---
+
 ## Finding IDs
 
 Every finding includes a stable, deterministic **finding ID** - an 8-character hex string that uniquely identifies the issue.
@@ -494,6 +613,28 @@ python3 -m coyote --repo /tmp/coyote-test --diff --baseline-path /tmp/test-basel
 python3 -m coyote --repo /tmp/coyote-test --diff --fail-on-new --baseline-path /tmp/test-baseline.json
 echo "Exit code: $?"  # Should print: Exit code: 1
 ```
+
+### Test Webhook Notifications
+
+```bash
+# Test Slack notification (replace with your webhook URL)
+python3 -m coyote --repo /tmp/coyote-test \
+    --slack-webhook "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+# Test Discord notification
+python3 -m coyote --repo /tmp/coyote-test \
+    --discord-webhook "https://discord.com/api/webhooks/YOUR/WEBHOOK"
+
+# Test with diff mode (only notifies on new findings)
+python3 -m coyote --repo /tmp/coyote-test --diff \
+    --baseline-path /tmp/test-baseline.json \
+    --slack-webhook "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+# You should see output like:
+# Slack: Slack notification sent
+```
+
+**Tip**: For testing without a real webhook, you can use [webhook.site](https://webhook.site) to get a temporary URL and inspect the payloads Coyote sends.
 
 ### Unit Test the Scanner Module
 
@@ -679,7 +820,7 @@ The coyote character changes based on scanner state:
 ## Future Improvements
 
 - [ ] Git history scanning (detect secrets in past commits)
-- [ ] Webhook notifications (Slack, Discord, email)
+- [x] ~~Webhook notifications (Slack, Discord)~~ - **Added in v0.4!**
 - [ ] Entropy-based secret detection
 - [ ] Custom pattern definitions via config
 - [ ] CI/CD integration (GitHub Actions, GitLab CI)
