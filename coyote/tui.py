@@ -43,11 +43,15 @@ class CoyoteTUI:
         notification_config: NotificationConfig | None = None,
         enable_entropy: bool = False,
         entropy_threshold: float = 4.5,
+        ignore_file: str | None = None,
+        no_ignore: bool = False,
     ):
         self.config = config or load_config()
         self.notification_config = notification_config or NotificationConfig()
         self.enable_entropy = enable_entropy
         self.entropy_threshold = entropy_threshold
+        self.ignore_file = ignore_file
+        self.no_ignore = no_ignore
         self.console = Console()
         self.pose = CoyotePose.IDLE
         self.quote_index = 0
@@ -190,6 +194,14 @@ class CoyoteTUI:
         )
         content_parts.append(summary)
 
+        # Show suppression stats if any
+        if result.findings_suppressed > 0:
+            suppressed_text = Text(
+                f"  ({result.findings_suppressed} findings suppressed via .coyote-ignore)",
+                style="dim",
+            )
+            content_parts.append(suppressed_text)
+
         title_style = "red" if result.high_count > 0 else "yellow" if result.medium_count > 0 else "blue"
         return Panel(
             Group(*content_parts),
@@ -261,6 +273,8 @@ class CoyoteTUI:
             max_file_size=self.config.max_file_size_bytes,
             enable_entropy=self.enable_entropy,
             entropy_threshold=self.entropy_threshold,
+            ignore_file=self.ignore_file,
+            no_ignore=self.no_ignore,
         )
 
         with self._lock:
@@ -685,6 +699,22 @@ def main():
         help="Entropy threshold for detection (default: 4.5, lower = more sensitive)"
     )
 
+    # Suppression options
+    parser.add_argument(
+        "--ignore-file",
+        help="Path to ignore file (default: .coyote-ignore in repo root)"
+    )
+    parser.add_argument(
+        "--no-ignore",
+        action="store_true",
+        help="Disable suppression (ignore .coyote-ignore file)"
+    )
+    parser.add_argument(
+        "--show-suppressed",
+        action="store_true",
+        help="Show which findings were suppressed"
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -715,6 +745,8 @@ def main():
         notification_config,
         enable_entropy=args.entropy,
         entropy_threshold=args.entropy_threshold,
+        ignore_file=args.ignore_file,
+        no_ignore=args.no_ignore,
     )
 
     # Handle history scan mode

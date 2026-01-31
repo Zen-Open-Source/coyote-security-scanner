@@ -19,15 +19,16 @@ Coyote monitors public GitHub repos, detects new commits, and scans for security
 
 ## Features
 
-- **Continuous Monitoring**: Polls GitHub repos for new commits and auto-scans on changes
 - **Comprehensive Detection**: Secrets, credentials, sensitive files, and security anti-patterns
 - **Entropy Detection**: Find high-randomness strings that are likely secrets (custom tokens, passwords)
 - **Git History Scanning**: Detect secrets in past commits, even if later "removed"
+- **Finding Suppression**: Ignore false positives via `.coyote-ignore` file
+- **Scan Diffing**: Compare scans against a baseline to track new vs. fixed findings
+- **Webhook Notifications**: Get Slack/Discord alerts when security issues are detected
+- **Continuous Monitoring**: Polls GitHub repos for new commits and auto-scans on changes
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
 - **Multiple Output Formats**: JSON and Markdown reports
 - **Stable Finding IDs**: Deterministic IDs for each finding enable diffing, suppression, and tracking
-- **Scan Diffing**: Compare scans against a baseline to track new vs. fixed findings
-- **Webhook Notifications**: Get Slack/Discord alerts when security issues are detected
 - **Configurable**: YAML-based configuration with sensible defaults
 
 ## Installation
@@ -109,6 +110,8 @@ Options:
   --branch BRANCH        Branch to scan in history mode (default: HEAD)
   --entropy              Enable entropy-based secret detection
   --entropy-threshold N  Entropy threshold (default: 4.5)
+  --ignore-file PATH     Use custom ignore file
+  --no-ignore            Disable suppression, report all findings
 ```
 
 ### Bash Watcher
@@ -136,6 +139,8 @@ Options:
   --max-commits N        Max commits to scan (default: 100)
   --entropy              Enable entropy-based detection
   --entropy-threshold N  Entropy threshold (default: 4.5)
+  --ignore-file PATH     Use custom ignore file
+  --no-ignore            Disable suppression
   --help, -h             Show help
 ```
 
@@ -499,6 +504,88 @@ python3 -m coyote --repo . --entropy --entropy-threshold 5.0
 
 ---
 
+## Finding Suppression
+
+Suppress specific findings that are false positives or accepted risks. Create a `.coyote-ignore` file in your repository root.
+
+### File Format
+
+```bash
+# .coyote-ignore - Suppress findings from Coyote scans
+
+# Suppress by finding ID (8 hex chars)
+a1b2c3d4                    # False positive - test fixture
+e5f6g7h8                    # Accepted risk - example API key
+
+# Suppress by rule name (affects all findings of that type)
+rule:Generic Secret         # Too noisy for this codebase
+rule:Missing .gitignore     # We use a different ignore mechanism
+
+# Suppress by file path prefix
+file:tests/fixtures/        # Test data contains fake secrets
+file:docs/examples/         # Documentation examples
+
+# Suppress by file path regex pattern
+pattern:.*_test\.py$        # All test files
+pattern:mock_.*\.json$      # All mock data files
+```
+
+### Usage
+
+```bash
+# Scan with default .coyote-ignore in repo root
+python3 -m coyote --repo /path/to/repo
+
+# Use a custom ignore file
+python3 -m coyote --repo /path/to/repo --ignore-file /path/to/.coyote-ignore
+
+# Disable suppression (scan everything)
+python3 -m coyote --repo /path/to/repo --no-ignore
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--ignore-file PATH` | Use a custom ignore file |
+| `--no-ignore` | Disable suppression, report all findings |
+
+### Example Output
+
+When findings are suppressed, Coyote shows how many:
+
+```
+╭───────────────────────── Scan Results (5 findings) ──────────────────────────╮
+│ ...                                                                          │
+│   Summary: 2 HIGH | 2 MEDIUM | 1 LOW | 50 files scanned                      │
+│   (3 findings suppressed via .coyote-ignore)                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### Getting Finding IDs
+
+Run a scan and note the ID column:
+
+```
+│ Sev  │ ID       │ Rule           │ File              │
+│ HIGH │ 666daffe │ AWS Access Key │ config.py:42      │
+```
+
+Then add to your `.coyote-ignore`:
+```bash
+666daffe  # False positive - AWS example key in docs
+```
+
+### Best Practices
+
+1. **Always add a comment** explaining why the finding is suppressed
+2. **Prefer ID suppression** over rule suppression for precision
+3. **Review suppressed findings periodically** - they might become real issues
+4. **Commit your .coyote-ignore** so the whole team benefits
+5. **Use file/pattern suppression** for test fixtures and example code
+
+---
+
 ## Webhook Notifications
 
 Get instant alerts in Slack or Discord when Coyote detects security issues. Perfect for monitoring repos continuously.
@@ -811,6 +898,36 @@ python3 -m coyote --repo /tmp/coyote-test --diff \
 
 **Tip**: For testing without a real webhook, you can use [webhook.site](https://webhook.site) to get a temporary URL and inspect the payloads Coyote sends.
 
+### Test Finding Suppression
+
+```bash
+# Create test repo with a finding
+mkdir -p /tmp/suppress-test
+echo 'API_KEY = "AKIAIOSFODNN7EXAMPLE"' > /tmp/suppress-test/config.py
+
+# Scan and note the finding ID
+python3 -m coyote --repo /tmp/suppress-test
+# Look for: │ HIGH │ 666daffe │ AWS Access Key │ config.py:1
+
+# Create ignore file to suppress it
+echo "666daffe  # False positive - example key" > /tmp/suppress-test/.coyote-ignore
+
+# Scan again - finding should be suppressed
+python3 -m coyote --repo /tmp/suppress-test
+# Expected: "(1 findings suppressed via .coyote-ignore)"
+
+# Test rule-based suppression
+echo "rule:AWS Access Key" > /tmp/suppress-test/.coyote-ignore
+python3 -m coyote --repo /tmp/suppress-test
+# Expected: All AWS Access Key findings suppressed
+
+# Disable suppression to see all findings
+python3 -m coyote --repo /tmp/suppress-test --no-ignore
+
+# Cleanup
+rm -rf /tmp/suppress-test
+```
+
 ### Test Entropy Detection
 
 ```bash
@@ -1055,10 +1172,10 @@ The coyote character changes based on scanner state:
 - [x] ~~Git history scanning (detect secrets in past commits)~~ - **Added in v0.5!**
 - [x] ~~Webhook notifications (Slack, Discord)~~ - **Added in v0.4!**
 - [x] ~~Entropy-based secret detection~~ - **Added in v0.6!**
+- [x] ~~Finding suppression by ID~~ - **Added in v0.7!**
 - [ ] Custom pattern definitions via config
 - [ ] CI/CD integration (GitHub Actions, GitLab CI)
 - [x] ~~Scan diffing (compare scans to detect new findings)~~ - **Added in v0.3!**
-- [ ] Finding suppression by ID (ignore known false positives) - enabled by finding IDs
 
 ## License
 

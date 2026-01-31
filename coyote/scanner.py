@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .entropy import scan_content_for_entropy, generate_entropy_finding_id
+from .suppress import SuppressionConfig, load_suppression_config
 from .patterns import (
     GITIGNORE_SHOULD_CONTAIN,
     LARGE_FILE_THRESHOLD,
@@ -65,6 +66,10 @@ class ScanResult:
     files_skipped: int = 0
     errors: list[str] = field(default_factory=list)
 
+    # Suppression stats
+    findings_suppressed: int = 0
+    suppression_config: SuppressionConfig | None = None
+
     @property
     def high_count(self) -> int:
         return sum(1 for f in self.findings if f.severity == Severity.HIGH)
@@ -80,6 +85,10 @@ class ScanResult:
     @property
     def total_count(self) -> int:
         return len(self.findings)
+
+    @property
+    def total_before_suppression(self) -> int:
+        return self.total_count + self.findings_suppressed
 
 
 DEFAULT_EXCLUDE_PATHS = [
@@ -141,6 +150,8 @@ class Scanner:
         max_file_size: int = DEFAULT_MAX_FILE_SIZE,
         enable_entropy: bool = False,
         entropy_threshold: float = 4.5,
+        ignore_file: str | None = None,
+        no_ignore: bool = False,
     ):
         self.repo_path = os.path.abspath(repo_path)
         self.exclude_paths = exclude_paths or DEFAULT_EXCLUDE_PATHS
@@ -148,6 +159,8 @@ class Scanner:
         self.max_file_size = max_file_size
         self.enable_entropy = enable_entropy
         self.entropy_threshold = entropy_threshold
+        self.ignore_file = ignore_file
+        self.no_ignore = no_ignore
 
     def scan(self) -> ScanResult:
         """Run a full security scan on the repository."""
@@ -156,6 +169,12 @@ class Scanner:
         if not os.path.isdir(self.repo_path):
             result.errors.append(f"Repository path does not exist: {self.repo_path}")
             return result
+
+        # Load suppression config (unless disabled)
+        suppression_config = None
+        if not self.no_ignore:
+            suppression_config = load_suppression_config(self.repo_path, self.ignore_file)
+            result.suppression_config = suppression_config
 
         # Collect all files to scan
         files = self._collect_files(result)
@@ -169,6 +188,11 @@ class Scanner:
         # Git-specific checks
         self._check_gitignore(result)
         self._check_large_files(result)
+
+        # Apply suppression rules
+        if suppression_config and suppression_config.total_rules > 0:
+            result.findings = suppression_config.filter_findings(result.findings)
+            result.findings_suppressed = suppression_config.findings_suppressed
 
         return result
 
@@ -409,6 +433,8 @@ def run_scan(
     max_file_size: int = DEFAULT_MAX_FILE_SIZE,
     enable_entropy: bool = False,
     entropy_threshold: float = 4.5,
+    ignore_file: str | None = None,
+    no_ignore: bool = False,
 ) -> ScanResult:
     """Convenience function to run a scan and return results."""
     scanner = Scanner(
@@ -418,5 +444,7 @@ def run_scan(
         max_file_size=max_file_size,
         enable_entropy=enable_entropy,
         entropy_threshold=entropy_threshold,
+        ignore_file=ignore_file,
+        no_ignore=no_ignore,
     )
     return scanner.scan()

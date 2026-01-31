@@ -37,6 +37,8 @@ HISTORY_SCAN=false
 MAX_COMMITS=100
 ENTROPY_SCAN=false
 ENTROPY_THRESHOLD="4.5"
+IGNORE_FILE=""
+NO_IGNORE=false
 
 # ─── Colors ─────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -140,6 +142,10 @@ parse_args() {
                 ENTROPY_SCAN=true; shift ;;
             --entropy-threshold)
                 ENTROPY_THRESHOLD="$2"; shift 2 ;;
+            --ignore-file)
+                IGNORE_FILE="$2"; shift 2 ;;
+            --no-ignore)
+                NO_IGNORE=true; shift ;;
             --help|-h)
                 echo "Coyote - Repository Security Watcher"
                 echo ""
@@ -173,6 +179,10 @@ parse_args() {
                 echo "Entropy Detection:"
                 echo "  --entropy            Enable entropy-based secret detection"
                 echo "  --entropy-threshold  Entropy threshold (default: 4.5, lower = more sensitive)"
+                echo ""
+                echo "Suppression:"
+                echo "  --ignore-file FILE   Path to ignore file (default: .coyote-ignore)"
+                echo "  --no-ignore          Disable suppression, scan everything"
                 echo ""
                 echo "  --help, -h           Show this help"
                 exit 0
@@ -325,6 +335,12 @@ run_scan() {
     if [[ "$ENTROPY_SCAN" == "true" ]]; then
         scan_args+=("--entropy")
         scan_args+=("--entropy-threshold" "$ENTROPY_THRESHOLD")
+    fi
+    if [[ -n "$IGNORE_FILE" ]]; then
+        scan_args+=("--ignore-file" "$IGNORE_FILE")
+    fi
+    if [[ "$NO_IGNORE" == "true" ]]; then
+        scan_args+=("--no-ignore")
     fi
 
     python3 -m coyote.tui "${scan_args[@]}"
