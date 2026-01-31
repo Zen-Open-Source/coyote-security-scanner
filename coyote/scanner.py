@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .entropy import scan_content_for_entropy, generate_entropy_finding_id
 from .patterns import (
     GITIGNORE_SHOULD_CONTAIN,
     LARGE_FILE_THRESHOLD,
@@ -138,11 +139,15 @@ class Scanner:
         exclude_paths: list[str] | None = None,
         exclude_extensions: list[str] | None = None,
         max_file_size: int = DEFAULT_MAX_FILE_SIZE,
+        enable_entropy: bool = False,
+        entropy_threshold: float = 4.5,
     ):
         self.repo_path = os.path.abspath(repo_path)
         self.exclude_paths = exclude_paths or DEFAULT_EXCLUDE_PATHS
         self.exclude_extensions = exclude_extensions or DEFAULT_EXCLUDE_EXTENSIONS
         self.max_file_size = max_file_size
+        self.enable_entropy = enable_entropy
+        self.entropy_threshold = entropy_threshold
 
     def scan(self) -> ScanResult:
         """Run a full security scan on the repository."""
@@ -263,7 +268,8 @@ class Scanner:
             full_path = os.path.join(self.repo_path, rel_path)
             try:
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
+                    content = f.read()
+                    lines = content.split('\n')
             except (OSError, UnicodeDecodeError):
                 continue
 
@@ -310,6 +316,25 @@ class Scanner:
                             description=smell.description,
                             finding_id=generate_finding_id(smell.name, rel_path, line_num, smell_match.group(0)),
                         ))
+
+            # Entropy-based detection (if enabled)
+            if self.enable_entropy:
+                entropy_findings = scan_content_for_entropy(
+                    content,
+                    rel_path,
+                    entropy_threshold=self.entropy_threshold,
+                )
+                for ef in entropy_findings:
+                    result.findings.append(PatternMatch(
+                        rule_name=f"High Entropy ({ef.char_set})",
+                        severity=ef.severity,
+                        file_path=ef.file_path,
+                        line_number=ef.line_number,
+                        line_content=ef.line_content[:200],
+                        description=f"High-entropy string detected (entropy: {ef.entropy:.2f}, confidence: {ef.confidence})",
+                        matched_text=ef.masked_value,
+                        finding_id=generate_entropy_finding_id(ef),
+                    ))
 
     def _check_gitignore(self, result: ScanResult) -> None:
         """Check if .gitignore exists and covers common secret patterns."""
@@ -382,6 +407,8 @@ def run_scan(
     exclude_paths: list[str] | None = None,
     exclude_extensions: list[str] | None = None,
     max_file_size: int = DEFAULT_MAX_FILE_SIZE,
+    enable_entropy: bool = False,
+    entropy_threshold: float = 4.5,
 ) -> ScanResult:
     """Convenience function to run a scan and return results."""
     scanner = Scanner(
@@ -389,5 +416,7 @@ def run_scan(
         exclude_paths=exclude_paths,
         exclude_extensions=exclude_extensions,
         max_file_size=max_file_size,
+        enable_entropy=enable_entropy,
+        entropy_threshold=entropy_threshold,
     )
     return scanner.scan()

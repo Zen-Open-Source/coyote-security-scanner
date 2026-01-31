@@ -37,9 +37,17 @@ from .scanner import ScanResult, run_scan
 
 
 class CoyoteTUI:
-    def __init__(self, config: CoyoteConfig | None = None, notification_config: NotificationConfig | None = None):
+    def __init__(
+        self,
+        config: CoyoteConfig | None = None,
+        notification_config: NotificationConfig | None = None,
+        enable_entropy: bool = False,
+        entropy_threshold: float = 4.5,
+    ):
         self.config = config or load_config()
         self.notification_config = notification_config or NotificationConfig()
+        self.enable_entropy = enable_entropy
+        self.entropy_threshold = entropy_threshold
         self.console = Console()
         self.pose = CoyotePose.IDLE
         self.quote_index = 0
@@ -251,6 +259,8 @@ class CoyoteTUI:
             exclude_paths=self.config.scan.exclude_paths,
             exclude_extensions=self.config.scan.exclude_extensions,
             max_file_size=self.config.max_file_size_bytes,
+            enable_entropy=self.enable_entropy,
+            entropy_threshold=self.entropy_threshold,
         )
 
         with self._lock:
@@ -662,6 +672,19 @@ def main():
         help="Branch to scan for history mode (default: HEAD)"
     )
 
+    # Entropy detection options
+    parser.add_argument(
+        "--entropy",
+        action="store_true",
+        help="Enable entropy-based secret detection (finds high-randomness strings)"
+    )
+    parser.add_argument(
+        "--entropy-threshold",
+        type=float,
+        default=4.5,
+        help="Entropy threshold for detection (default: 4.5, lower = more sensitive)"
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -687,7 +710,12 @@ def main():
         notification_config.enabled = True
         notification_config.discord_webhook_url = args.discord_webhook
 
-    tui = CoyoteTUI(config, notification_config)
+    tui = CoyoteTUI(
+        config,
+        notification_config,
+        enable_entropy=args.entropy,
+        entropy_threshold=args.entropy_threshold,
+    )
 
     # Handle history scan mode
     if args.history:

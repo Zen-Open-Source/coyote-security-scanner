@@ -21,6 +21,8 @@ Coyote monitors public GitHub repos, detects new commits, and scans for security
 
 - **Continuous Monitoring**: Polls GitHub repos for new commits and auto-scans on changes
 - **Comprehensive Detection**: Secrets, credentials, sensitive files, and security anti-patterns
+- **Entropy Detection**: Find high-randomness strings that are likely secrets (custom tokens, passwords)
+- **Git History Scanning**: Detect secrets in past commits, even if later "removed"
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
 - **Multiple Output Formats**: JSON and Markdown reports
 - **Stable Finding IDs**: Deterministic IDs for each finding enable diffing, suppression, and tracking
@@ -105,6 +107,8 @@ Options:
   --history              Scan git history for secrets in past commits
   --max-commits N        Max commits to scan in history mode (default: 100)
   --branch BRANCH        Branch to scan in history mode (default: HEAD)
+  --entropy              Enable entropy-based secret detection
+  --entropy-threshold N  Entropy threshold (default: 4.5)
 ```
 
 ### Bash Watcher
@@ -130,6 +134,8 @@ Options:
   --discord-webhook URL  Discord webhook URL (overrides config)
   --history              Scan git history for secrets
   --max-commits N        Max commits to scan (default: 100)
+  --entropy              Enable entropy-based detection
+  --entropy-threshold N  Entropy threshold (default: 4.5)
   --help, -h             Show help
 ```
 
@@ -413,6 +419,82 @@ python3 -m coyote --repo /path/to/repo --history --fail-on-new
 - name: Check for secrets in history
   run: |
     python3 -m coyote --repo . --history --max-commits 50 --fail-on-new
+```
+
+---
+
+## Entropy-Based Detection
+
+Detect high-randomness strings that are likely secrets, even if they don't match known patterns. This catches:
+- Custom API keys and tokens
+- Randomly generated passwords
+- Internal secrets with non-standard formats
+
+### How It Works
+
+Coyote calculates the [Shannon entropy](https://en.wikipedia.org/wiki/Entropy_(information_theory)) of strings in your code. High entropy = high randomness = likely a secret.
+
+| String Type | Typical Entropy |
+|-------------|-----------------|
+| English text | ~4.0 bits |
+| Code/variables | ~4.0-4.5 bits |
+| **Secrets/tokens** | **~5.0-6.0 bits** |
+| Random base64 | ~5.5-6.0 bits |
+
+### Usage
+
+```bash
+# Enable entropy detection
+python3 -m coyote --repo /path/to/repo --entropy
+
+# Adjust sensitivity (lower = more findings, more false positives)
+python3 -m coyote --repo /path/to/repo --entropy --entropy-threshold 4.0
+
+# Combine with pattern scanning (default + entropy)
+python3 -m coyote --repo /path/to/repo --entropy
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--entropy` | Enable entropy-based detection |
+| `--entropy-threshold N` | Entropy threshold (default: 4.5, lower = more sensitive) |
+
+### Example Output
+
+```
+╭───────────────────────── Scan Results (2 findings) ──────────────────────────╮
+│ ┏━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓ │
+│ ┃ Sev  ┃ ID       ┃ Rule                 ┃ File               ┃ Desc       ┃ │
+│ ┡━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩ │
+│ │  MED │ 39441a36 │ High Entropy (base64)│ config.py:1        │ entropy:   │ │
+│ │      │          │                      │                    │ 5.12       │ │
+│ │  MED │ 54140021 │ High Entropy (base64)│ tokens.py:3        │ entropy:   │ │
+│ │      │          │                      │                    │ 4.89       │ │
+│ └──────┴──────────┴──────────────────────┴────────────────────┴────────────┘ │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### Confidence Levels
+
+Findings are assigned confidence based on:
+- **High**: Very high entropy + near a keyword like "key", "secret", "token"
+- **Medium**: High entropy or entropy + keyword context
+- **Low**: Borderline entropy, might be false positive
+
+### Reducing False Positives
+
+Coyote automatically filters out:
+- UUIDs and git commit hashes
+- Version strings
+- File paths and URLs
+- Common placeholder values
+- Repeated characters
+
+If you're getting too many false positives, try increasing the threshold:
+```bash
+python3 -m coyote --repo . --entropy --entropy-threshold 5.0
 ```
 
 ---
@@ -729,6 +811,34 @@ python3 -m coyote --repo /tmp/coyote-test --diff \
 
 **Tip**: For testing without a real webhook, you can use [webhook.site](https://webhook.site) to get a temporary URL and inspect the payloads Coyote sends.
 
+### Test Entropy Detection
+
+```bash
+# Create test files with high-entropy strings
+mkdir -p /tmp/entropy-test
+cd /tmp/entropy-test
+
+# A custom token that wouldn't match known patterns
+echo 'my_token = "aX7kL9mN2pQ5rS8tU1vW4xY7zA0bC3dE6fG9hJ2kL5"' > tokens.py
+
+# A normal variable (low entropy) - should NOT be flagged
+echo 'greeting = "hello world how are you today"' >> tokens.py
+
+# Run with entropy detection
+cd /path/to/coyote-repo-scanner
+python3 -m coyote --repo /tmp/entropy-test --entropy
+
+# Expected: Finds "High Entropy (base64)" for the token
+# The greeting string should NOT be flagged (low entropy)
+
+# Test with different thresholds
+python3 -m coyote --repo /tmp/entropy-test --entropy --entropy-threshold 5.0  # Less sensitive
+python3 -m coyote --repo /tmp/entropy-test --entropy --entropy-threshold 4.0  # More sensitive
+
+# Cleanup
+rm -rf /tmp/entropy-test
+```
+
 ### Test Git History Scanning
 
 ```bash
@@ -944,7 +1054,7 @@ The coyote character changes based on scanner state:
 
 - [x] ~~Git history scanning (detect secrets in past commits)~~ - **Added in v0.5!**
 - [x] ~~Webhook notifications (Slack, Discord)~~ - **Added in v0.4!**
-- [ ] Entropy-based secret detection
+- [x] ~~Entropy-based secret detection~~ - **Added in v0.6!**
 - [ ] Custom pattern definitions via config
 - [ ] CI/CD integration (GitHub Actions, GitLab CI)
 - [x] ~~Scan diffing (compare scans to detect new findings)~~ - **Added in v0.3!**

@@ -35,6 +35,8 @@ SLACK_WEBHOOK=""
 DISCORD_WEBHOOK=""
 HISTORY_SCAN=false
 MAX_COMMITS=100
+ENTROPY_SCAN=false
+ENTROPY_THRESHOLD="4.5"
 
 # ─── Colors ─────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -134,6 +136,10 @@ parse_args() {
                 HISTORY_SCAN=true; shift ;;
             --max-commits)
                 MAX_COMMITS="$2"; shift 2 ;;
+            --entropy)
+                ENTROPY_SCAN=true; shift ;;
+            --entropy-threshold)
+                ENTROPY_THRESHOLD="$2"; shift 2 ;;
             --help|-h)
                 echo "Coyote - Repository Security Watcher"
                 echo ""
@@ -163,6 +169,10 @@ parse_args() {
                 echo "History Scanning:"
                 echo "  --history            Scan git history for secrets in past commits"
                 echo "  --max-commits N      Max commits to scan (default: 100)"
+                echo ""
+                echo "Entropy Detection:"
+                echo "  --entropy            Enable entropy-based secret detection"
+                echo "  --entropy-threshold  Entropy threshold (default: 4.5, lower = more sensitive)"
                 echo ""
                 echo "  --help, -h           Show this help"
                 exit 0
@@ -311,6 +321,10 @@ run_scan() {
     if [[ "$HISTORY_SCAN" == "true" ]]; then
         scan_args+=("--history")
         scan_args+=("--max-commits" "$MAX_COMMITS")
+    fi
+    if [[ "$ENTROPY_SCAN" == "true" ]]; then
+        scan_args+=("--entropy")
+        scan_args+=("--entropy-threshold" "$ENTROPY_THRESHOLD")
     fi
 
     python3 -m coyote.tui "${scan_args[@]}"
