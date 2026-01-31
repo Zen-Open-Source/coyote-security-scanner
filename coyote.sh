@@ -33,6 +33,8 @@ FAIL_ON_NEW=false
 NOTIFY=false
 SLACK_WEBHOOK=""
 DISCORD_WEBHOOK=""
+HISTORY_SCAN=false
+MAX_COMMITS=100
 
 # ─── Colors ─────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -128,6 +130,10 @@ parse_args() {
                 SLACK_WEBHOOK="$2"; shift 2 ;;
             --discord-webhook)
                 DISCORD_WEBHOOK="$2"; shift 2 ;;
+            --history)
+                HISTORY_SCAN=true; shift ;;
+            --max-commits)
+                MAX_COMMITS="$2"; shift 2 ;;
             --help|-h)
                 echo "Coyote - Repository Security Watcher"
                 echo ""
@@ -153,6 +159,10 @@ parse_args() {
                 echo "  --notify             Enable webhook notifications (uses config file)"
                 echo "  --slack-webhook URL  Slack webhook URL (overrides config)"
                 echo "  --discord-webhook URL Discord webhook URL (overrides config)"
+                echo ""
+                echo "History Scanning:"
+                echo "  --history            Scan git history for secrets in past commits"
+                echo "  --max-commits N      Max commits to scan (default: 100)"
                 echo ""
                 echo "  --help, -h           Show this help"
                 exit 0
@@ -297,6 +307,10 @@ run_scan() {
     fi
     if [[ -n "$DISCORD_WEBHOOK" ]]; then
         scan_args+=("--discord-webhook" "$DISCORD_WEBHOOK")
+    fi
+    if [[ "$HISTORY_SCAN" == "true" ]]; then
+        scan_args+=("--history")
+        scan_args+=("--max-commits" "$MAX_COMMITS")
     fi
 
     python3 -m coyote.tui "${scan_args[@]}"

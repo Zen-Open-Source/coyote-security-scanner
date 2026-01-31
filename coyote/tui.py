@@ -29,6 +29,7 @@ from .baseline import (
 )
 from .config import CoyoteConfig, load_config
 from .coyote_art import CoyotePose, get_art, get_quote
+from .history import HistoryScanResult, scan_history, format_history_report
 from .notifications import NotificationConfig, load_notification_config, send_notifications
 from .patterns import Severity
 from .reporter import save_reports
@@ -403,6 +404,121 @@ class CoyoteTUI:
 
         return diff
 
+    def _build_history_panel(self, result: HistoryScanResult) -> Panel:
+        """Build a panel showing history scan results."""
+        parts = []
+
+        # Summary
+        summary = Text()
+        summary.append("  Commits scanned: ", style="bold")
+        summary.append(f"{result.commits_scanned}\n", style="white")
+        summary.append("  Secrets found:   ", style="bold")
+        if result.total_count > 0:
+            summary.append(f"{result.total_count}", style="bold red")
+            summary.append(f" in {result.unique_commits} commits\n", style="dim")
+        else:
+            summary.append("0\n", style="bold green")
+
+        if result.total_count > 0:
+            summary.append("  Severity:        ", style="bold")
+            summary.append(f"{result.high_count} HIGH", style="red")
+            summary.append(" | ", style="dim")
+            summary.append(f"{result.medium_count} MED", style="yellow")
+            summary.append(" | ", style="dim")
+            summary.append(f"{result.low_count} LOW", style="blue")
+
+        parts.append(summary)
+
+        # Findings table grouped by commit
+        if result.findings:
+            parts.append(Text("\n"))
+
+            table = Table(show_header=True, header_style="bold", expand=True, show_lines=False)
+            table.add_column("Sev", width=4, justify="center")
+            table.add_column("Commit", width=9)
+            table.add_column("Rule", width=18)
+            table.add_column("File", width=24)
+            table.add_column("Author", width=20)
+
+            # Show at most 15 findings
+            for f in result.findings[:15]:
+                sev_style = {
+                    Severity.HIGH: ("bold red", "HIGH"),
+                    Severity.MEDIUM: ("bold yellow", " MED"),
+                    Severity.LOW: ("bold blue", " LOW"),
+                }.get(f.severity, ("white", " ???"))
+                style, label = sev_style
+
+                table.add_row(
+                    Text(label, style=style),
+                    Text(f.commit_short, style="cyan"),
+                    Text(f.rule_name[:18], style="white"),
+                    Text(f.file_path[:24], style="dim"),
+                    Text(f.commit_author.split('<')[0].strip()[:20], style="dim"),
+                )
+
+            parts.append(table)
+
+            if len(result.findings) > 15:
+                parts.append(Text(f"\n  ... and {len(result.findings) - 15} more findings", style="dim"))
+
+            # Warning
+            parts.append(Text("\n\n  ⚠️  These secrets are in git history and may be exposed!", style="bold yellow"))
+            parts.append(Text("\n  Consider rotating credentials and rewriting history.", style="dim"))
+
+        # Determine style
+        if result.high_count > 0:
+            border_style = "red"
+            title = f"[bold red]History Scan: {result.total_count} secrets found[/]"
+        elif result.total_count > 0:
+            border_style = "yellow"
+            title = f"[bold yellow]History Scan: {result.total_count} secrets found[/]"
+        else:
+            border_style = "green"
+            title = "[bold green]History Scan: No secrets in history[/]"
+
+        return Panel(Group(*parts), title=title, border_style=border_style)
+
+    def run_history_scan(self, max_commits: int = 100, branch: str = "HEAD") -> HistoryScanResult:
+        """Scan git history for secrets."""
+        self.console.print(Panel(
+            Align.center(Text(f"COYOTE v{__version__} - Repository Security Scanner", style="bold cyan")),
+            style="cyan",
+        ))
+
+        art = get_art(CoyotePose.SCANNING)
+        self.console.print(Text(art, style="cyan"))
+        self.console.print(f"[yellow]Scanning git history ({max_commits} commits)...[/]\n")
+
+        local_path = self.config.target.local_path
+
+        result = scan_history(
+            repo_path=local_path,
+            branch=branch,
+            max_commits=max_commits,
+            exclude_paths=self.config.scan.exclude_paths,
+        )
+
+        # Display results
+        self.console.print(self._build_history_panel(result))
+        self.console.print()
+
+        # Show appropriate coyote
+        if result.high_count > 0:
+            art = get_art(CoyotePose.ALERT)
+            self.console.print(Text(art, style="red"))
+            self.console.print(f"[bold red]Found {result.total_count} secrets in git history![/]")
+        elif result.total_count > 0:
+            art = get_art(CoyotePose.ALERT)
+            self.console.print(Text(art, style="yellow"))
+            self.console.print(f"[bold yellow]Found {result.total_count} secrets in git history.[/]")
+        else:
+            art = get_art(CoyotePose.ALL_CLEAR)
+            self.console.print(Text(art, style="green"))
+            self.console.print("[bold green]No secrets found in git history![/]")
+
+        return result
+
     def run_interactive(self) -> None:
         """Run the interactive TUI with live updates."""
         self.running = True
@@ -528,6 +644,24 @@ def main():
         help="Discord webhook URL (overrides config)"
     )
 
+    # History scanning options
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="Scan git history for secrets (finds secrets in past commits)"
+    )
+    parser.add_argument(
+        "--max-commits",
+        type=int,
+        default=100,
+        help="Maximum commits to scan in history mode (default: 100)"
+    )
+    parser.add_argument(
+        "--branch",
+        default="HEAD",
+        help="Branch to scan for history mode (default: HEAD)"
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -554,6 +688,27 @@ def main():
         notification_config.discord_webhook_url = args.discord_webhook
 
     tui = CoyoteTUI(config, notification_config)
+
+    # Handle history scan mode
+    if args.history:
+        result = tui.run_history_scan(max_commits=args.max_commits, branch=args.branch)
+
+        # Save report if requested
+        if args.report and result.findings:
+            from .history import format_history_report
+            report_content = format_history_report(result)
+            report_path = f"{config.output.report_dir}/coyote_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            import os
+            os.makedirs(config.output.report_dir, exist_ok=True)
+            with open(report_path, "w") as f:
+                f.write(report_content)
+            tui.console.print(f"[dim]History report saved: {report_path}[/]")
+
+        # Exit with error if findings and --fail-on-new (reuse flag for CI)
+        if args.fail_on_new and result.total_count > 0:
+            tui.console.print(f"[red]Failing due to {result.total_count} secrets in history.[/]")
+            sys.exit(1)
+        return
 
     # Handle diff mode
     if args.diff:

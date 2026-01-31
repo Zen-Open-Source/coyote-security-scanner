@@ -102,6 +102,9 @@ Options:
   --notify               Enable webhook notifications (uses config)
   --slack-webhook URL    Slack webhook URL (overrides config)
   --discord-webhook URL  Discord webhook URL (overrides config)
+  --history              Scan git history for secrets in past commits
+  --max-commits N        Max commits to scan in history mode (default: 100)
+  --branch BRANCH        Branch to scan in history mode (default: HEAD)
 ```
 
 ### Bash Watcher
@@ -125,6 +128,8 @@ Options:
   --notify               Enable webhook notifications (uses config)
   --slack-webhook URL    Slack webhook URL (overrides config)
   --discord-webhook URL  Discord webhook URL (overrides config)
+  --history              Scan git history for secrets
+  --max-commits N        Max commits to scan (default: 100)
   --help, -h             Show help
 ```
 
@@ -321,6 +326,94 @@ The baseline is stored as JSON (`.coyote-baseline.json` by default):
 ```
 
 **Tip**: Add `.coyote-baseline.json` to your `.gitignore` if you don't want to track it, or commit it if you want consistent baselines across your team.
+
+---
+
+## Git History Scanning
+
+Scan git commit history to find secrets that were ever committed, even if they were later "deleted". **Secrets in git history are still exposed** - anyone with repo access can see them in past commits.
+
+### Why This Matters
+
+```
+Commit 1: Added config.py with AWS_KEY="AKIA..."
+Commit 2: Removed the secret from config.py
+
+The secret is STILL in git history and can be found with:
+  git log -p | grep AKIA
+```
+
+Even after "removing" a secret, it remains in your git history forever unless you rewrite history. Coyote's history scan finds these exposed secrets.
+
+### Usage
+
+```bash
+# Scan last 100 commits (default)
+python3 -m coyote --repo /path/to/repo --history
+
+# Scan more history
+python3 -m coyote --repo /path/to/repo --history --max-commits 500
+
+# Scan a specific branch
+python3 -m coyote --repo /path/to/repo --history --branch develop
+
+# Fail in CI if secrets found in history
+python3 -m coyote --repo /path/to/repo --history --fail-on-new
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--history` | Enable git history scanning mode |
+| `--max-commits N` | Maximum commits to scan (default: 100) |
+| `--branch BRANCH` | Branch to scan (default: HEAD) |
+| `--fail-on-new` | Exit with code 1 if secrets found (for CI) |
+
+### Example Output
+
+```
+╭─────────────────────── History Scan: 3 secrets found ────────────────────────╮
+│   Commits scanned: 150                                                       │
+│   Secrets found:   3 in 2 commits                                            │
+│   Severity:        2 HIGH | 1 MED | 0 LOW                                    │
+│                                                                              │
+│ ┏━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓ │
+│ ┃ Sev  ┃ Commit  ┃ Rule            ┃ File              ┃ Author            ┃ │
+│ ┡━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩ │
+│ │ HIGH │ a1b2c3d │ AWS Access Key  │ config.py         │ dev@example.com   │ │
+│ │ HIGH │ a1b2c3d │ AWS Secret Key  │ config.py         │ dev@example.com   │ │
+│ │  MED │ e4f5g6h │ Generic Secret  │ .env.example      │ dev@example.com   │ │
+│ └──────┴─────────┴─────────────────┴───────────────────┴───────────────────┘ │
+│                                                                              │
+│   ⚠️  These secrets are in git history and may be exposed!                    │
+│   Consider rotating credentials and rewriting history.                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+### What To Do If Secrets Are Found
+
+1. **Rotate the credentials immediately** - Assume they are compromised
+2. **Rewrite git history** (optional but recommended):
+   ```bash
+   # Using git-filter-repo (recommended)
+   pip install git-filter-repo
+   git filter-repo --invert-paths --path secrets.py
+
+   # Or using BFG Repo-Cleaner
+   bfg --delete-files secrets.py
+   ```
+3. **Force push** to update remote (requires coordination with team)
+4. **Invalidate old credentials** in your cloud provider console
+
+### CI/CD Integration
+
+```yaml
+# GitHub Actions - block PRs with secrets in history
+- name: Check for secrets in history
+  run: |
+    python3 -m coyote --repo . --history --max-commits 50 --fail-on-new
+```
 
 ---
 
@@ -636,6 +729,36 @@ python3 -m coyote --repo /tmp/coyote-test --diff \
 
 **Tip**: For testing without a real webhook, you can use [webhook.site](https://webhook.site) to get a temporary URL and inspect the payloads Coyote sends.
 
+### Test Git History Scanning
+
+```bash
+# Create a test repo with a secret that gets "removed"
+mkdir -p /tmp/history-test && cd /tmp/history-test
+git init
+
+# Commit 1: innocent file
+echo "hello" > readme.txt
+git add readme.txt && git commit -m "initial"
+
+# Commit 2: add a secret
+echo 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"' > config.py
+git add config.py && git commit -m "added config"
+
+# Commit 3: "remove" the secret
+echo "# cleaned" > config.py
+git add config.py && git commit -m "removed secret"
+
+# Now scan history - should find the secret from commit 2!
+cd /path/to/coyote-repo-scanner
+python3 -m coyote --repo /tmp/history-test --history
+
+# Expected: Finds 1 HIGH severity finding (AWS Access Key) in commit 2
+# Even though it was "removed" in commit 3, it's still in git history!
+
+# Cleanup
+rm -rf /tmp/history-test
+```
+
 ### Unit Test the Scanner Module
 
 ```python
@@ -819,7 +942,7 @@ The coyote character changes based on scanner state:
 
 ## Future Improvements
 
-- [ ] Git history scanning (detect secrets in past commits)
+- [x] ~~Git history scanning (detect secrets in past commits)~~ - **Added in v0.5!**
 - [x] ~~Webhook notifications (Slack, Discord)~~ - **Added in v0.4!**
 - [ ] Entropy-based secret detection
 - [ ] Custom pattern definitions via config
