@@ -27,7 +27,8 @@ Coyote monitors public GitHub repos, detects new commits, and scans for security
 - **Webhook Notifications**: Get Slack/Discord alerts when security issues are detected
 - **Continuous Monitoring**: Polls GitHub repos for new commits and auto-scans on changes
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
-- **Multiple Output Formats**: JSON and Markdown reports
+- **Multiple Output Formats**: JSON, Markdown, and SARIF reports
+- **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Stable Finding IDs**: Deterministic IDs for each finding enable diffing, suppression, and tracking
 - **Configurable**: YAML-based configuration with sensible defaults
 
@@ -112,6 +113,8 @@ Options:
   --entropy-threshold N  Entropy threshold (default: 4.5)
   --ignore-file PATH     Use custom ignore file
   --no-ignore            Disable suppression, report all findings
+  --sarif FILE           Output results in SARIF format (use - for stdout)
+  --sarif-output FILE    Write SARIF output to FILE
 ```
 
 ### Bash Watcher
@@ -141,6 +144,7 @@ Options:
   --entropy-threshold N  Entropy threshold (default: 4.5)
   --ignore-file PATH     Use custom ignore file
   --no-ignore            Disable suppression
+  --sarif FILE           Output results in SARIF format
   --help, -h             Show help
 ```
 
@@ -697,6 +701,115 @@ Discord notifications appear as rich embeds with:
 
 ---
 
+## SARIF Output
+
+Coyote supports SARIF (Static Analysis Results Interchange Format) output, the industry-standard format for static analysis tools. SARIF is supported by:
+- GitHub Code Scanning
+- VS Code SARIF Viewer
+- Azure DevOps
+- Many other security tools
+
+### Usage
+
+```bash
+# Output SARIF to stdout
+python3 -m coyote --repo /path/to/repo --sarif -
+
+# Output SARIF to a file
+python3 -m coyote --repo /path/to/repo --sarif results.sarif
+
+# Alternative: use --sarif-output
+python3 -m coyote --repo /path/to/repo --sarif-output results.sarif
+
+# Combine with other options
+python3 -m coyote --repo /path/to/repo --entropy --sarif results.sarif
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--sarif FILE` | Output SARIF to FILE (use `-` for stdout) |
+| `--sarif-output FILE` | Write SARIF output to FILE |
+
+### GitHub Code Scanning Integration
+
+Upload SARIF results to GitHub Code Scanning in your CI/CD workflow:
+
+```yaml
+# GitHub Actions example
+name: Security Scan
+on: [push, pull_request]
+
+jobs:
+  coyote-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Coyote
+        run: pip install -r requirements.txt
+
+      - name: Run Coyote scan
+        run: python3 -m coyote --repo . --sarif results.sarif
+
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+```
+
+### SARIF Format Details
+
+The SARIF output includes:
+- **Tool information**: Coyote version, documentation URL
+- **Rules**: All detection rules with descriptions and severity levels
+- **Results**: Each finding with location, message, and fingerprints
+- **Severity mapping**: HIGH → error, MEDIUM → warning, LOW → note
+
+Example SARIF structure:
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {
+      "driver": {
+        "name": "Coyote",
+        "version": "0.8.0",
+        "rules": [...]
+      }
+    },
+    "results": [
+      {
+        "ruleId": "coyote/aws-access-key",
+        "level": "error",
+        "message": { "text": "AWS Access Key ID detected" },
+        "locations": [{
+          "physicalLocation": {
+            "artifactLocation": { "uri": "config.py" },
+            "region": { "startLine": 42 }
+          }
+        }]
+      }
+    ]
+  }]
+}
+```
+
+### Viewing SARIF Results
+
+- **VS Code**: Install the [SARIF Viewer extension](https://marketplace.visualstudio.com/items?itemName=MS-SarifVSCode.sarif-viewer)
+- **GitHub**: Upload via Code Scanning to see results in the Security tab
+- **CLI**: Use `jq` to query the JSON: `jq '.runs[].results | length' results.sarif`
+
+---
+
 ## Finding IDs
 
 Every finding includes a stable, deterministic **finding ID** - an 8-character hex string that uniquely identifies the issue.
@@ -1162,10 +1275,9 @@ The coyote character changes based on scanner state:
 
 ## Limitations
 
-- **No Git History Scanning**: Currently only scans the current working tree, not historical commits
-- **No Entropy Analysis**: Relies on pattern matching, not entropy-based secret detection
 - **Self-Detection**: The scanner may flag its own pattern definitions as matches (expected behavior)
 - **No Auto-Remediation**: Reports issues but doesn't automatically fix them
+- **Pattern-Based**: While entropy detection helps, some custom secrets may require adding custom patterns
 
 ## Future Improvements
 
@@ -1173,6 +1285,7 @@ The coyote character changes based on scanner state:
 - [x] ~~Webhook notifications (Slack, Discord)~~ - **Added in v0.4!**
 - [x] ~~Entropy-based secret detection~~ - **Added in v0.6!**
 - [x] ~~Finding suppression by ID~~ - **Added in v0.7!**
+- [x] ~~SARIF output for GitHub Code Scanning~~ - **Added in v0.8!**
 - [ ] Custom pattern definitions via config
 - [ ] CI/CD integration (GitHub Actions, GitLab CI)
 - [x] ~~Scan diffing (compare scans to detect new findings)~~ - **Added in v0.3!**

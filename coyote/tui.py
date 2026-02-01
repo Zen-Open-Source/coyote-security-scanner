@@ -33,6 +33,7 @@ from .history import HistoryScanResult, scan_history, format_history_report
 from .notifications import NotificationConfig, load_notification_config, send_notifications
 from .patterns import Severity
 from .reporter import save_reports
+from .sarif import generate_sarif, sarif_to_json
 from .scanner import ScanResult, run_scan
 
 
@@ -715,6 +716,20 @@ def main():
         help="Show which findings were suppressed"
     )
 
+    # Output format options
+    parser.add_argument(
+        "--sarif",
+        nargs="?",
+        const="-",
+        metavar="FILE",
+        help="Output results in SARIF format (to stdout or FILE)"
+    )
+    parser.add_argument(
+        "--sarif-output",
+        metavar="FILE",
+        help="Write SARIF output to FILE"
+    )
+
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -798,6 +813,22 @@ def main():
 
     # Standard scan
     tui.run_single_scan()
+
+    # Handle SARIF output if requested
+    sarif_output_path = args.sarif_output or args.sarif
+    if sarif_output_path and tui.scan_result:
+        sarif_doc = generate_sarif(tui.scan_result)
+        sarif_json = sarif_to_json(sarif_doc)
+        if sarif_output_path == "-":
+            # Output to stdout
+            print(sarif_json)
+        else:
+            # Write to file
+            import os
+            os.makedirs(os.path.dirname(sarif_output_path) or ".", exist_ok=True)
+            with open(sarif_output_path, "w", encoding="utf-8") as f:
+                f.write(sarif_json)
+            tui.console.print(f"[dim]SARIF report saved: {sarif_output_path}[/]")
 
     # Save baseline if requested
     if args.save_baseline and tui.scan_result:

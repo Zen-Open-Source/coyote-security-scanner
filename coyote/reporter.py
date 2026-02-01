@@ -1,4 +1,4 @@
-"""Report generation for Coyote scan results (JSON and Markdown)."""
+"""Report generation for Coyote scan results (JSON, Markdown, and SARIF)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 
 from .patterns import Severity
+from .sarif import generate_sarif, sarif_to_json
 from .scanner import ScanResult
 
 
@@ -106,6 +107,12 @@ def generate_markdown_report(result: ScanResult, commit_hash: str = "") -> str:
     return "\n".join(lines)
 
 
+def generate_sarif_report(result: ScanResult) -> str:
+    """Generate a SARIF-formatted scan report."""
+    sarif = generate_sarif(result)
+    return sarif_to_json(sarif)
+
+
 def save_reports(
     result: ScanResult,
     report_dir: str = "./reports",
@@ -130,6 +137,12 @@ def save_reports(
         path = os.path.join(report_dir, f"coyote_report_{timestamp}.md")
         with open(path, "w", encoding="utf-8") as f:
             f.write(generate_markdown_report(result, commit_hash))
+        saved.append(path)
+
+    if "sarif" in formats:
+        path = os.path.join(report_dir, f"coyote_report_{timestamp}.sarif")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(generate_sarif_report(result))
         saved.append(path)
 
     return saved

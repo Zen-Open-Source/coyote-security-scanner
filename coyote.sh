@@ -39,6 +39,7 @@ ENTROPY_SCAN=false
 ENTROPY_THRESHOLD="4.5"
 IGNORE_FILE=""
 NO_IGNORE=false
+SARIF_OUTPUT=""
 
 # ─── Colors ─────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -146,6 +147,8 @@ parse_args() {
                 IGNORE_FILE="$2"; shift 2 ;;
             --no-ignore)
                 NO_IGNORE=true; shift ;;
+            --sarif)
+                SARIF_OUTPUT="$2"; shift 2 ;;
             --help|-h)
                 echo "Coyote - Repository Security Watcher"
                 echo ""
@@ -183,6 +186,9 @@ parse_args() {
                 echo "Suppression:"
                 echo "  --ignore-file FILE   Path to ignore file (default: .coyote-ignore)"
                 echo "  --no-ignore          Disable suppression, scan everything"
+                echo ""
+                echo "Output Formats:"
+                echo "  --sarif FILE         Output results in SARIF format to FILE (use - for stdout)"
                 echo ""
                 echo "  --help, -h           Show this help"
                 exit 0
@@ -341,6 +347,9 @@ run_scan() {
     fi
     if [[ "$NO_IGNORE" == "true" ]]; then
         scan_args+=("--no-ignore")
+    fi
+    if [[ -n "$SARIF_OUTPUT" ]]; then
+        scan_args+=("--sarif" "$SARIF_OUTPUT")
     fi
 
     python3 -m coyote.tui "${scan_args[@]}"
