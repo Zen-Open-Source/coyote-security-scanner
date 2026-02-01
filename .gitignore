@@ -184,3 +184,4 @@ cython_debug/
 reports/
 watched_repo/
 config.yaml
+progress.txt
