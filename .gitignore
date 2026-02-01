@@ -185,3 +185,12 @@ reports/
 watched_repo/
 config.yaml
 progress.txt
+
+# Sensitive files
+*.pem
+*.key
+id_rsa
+*.p12
+*.pfx
+credentials.json
+service-account*.json
