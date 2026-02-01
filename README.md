@@ -1470,26 +1470,6 @@ The coyote character changes based on scanner state:
   |____|     |_____|
 ```
 
-## Limitations
-
-- **Self-Detection**: The scanner may flag its own pattern definitions as matches (expected behavior)
-- **No Auto-Remediation**: Reports issues but doesn't automatically fix them
-- **Pattern-Based**: While entropy detection helps, some custom secrets may require adding custom patterns
-
-## Future Improvements
-
-- [x] ~~Git history scanning (detect secrets in past commits)~~ - **Added in v0.5!**
-- [x] ~~Webhook notifications (Slack, Discord)~~ - **Added in v0.4!**
-- [x] ~~Entropy-based secret detection~~ - **Added in v0.6!**
-- [x] ~~Finding suppression by ID~~ - **Added in v0.7!**
-- [x] ~~SARIF output for GitHub Code Scanning~~ - **Added in v0.8!**
-- [x] ~~AI Agent security analysis~~ - **Added in v0.9!**
-- [ ] Custom pattern definitions via config
-- [ ] CI/CD integration (GitHub Actions, GitLab CI)
-- [ ] Agent runtime sandboxing
-- [ ] Community agent reputation scores
-- [x] ~~Scan diffing (compare scans to detect new findings)~~ - **Added in v0.3!**
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
