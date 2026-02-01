@@ -49,7 +49,7 @@ Coyote is a dual-purpose security tool:
                                                ...
                                              .
 
-v0.9.2
+v1.0.0
 ```
 *Sniffing out secrets...*
 

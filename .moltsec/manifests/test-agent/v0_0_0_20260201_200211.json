@@ -1,0 +1,48 @@
+{
+  "manifest_version": "1.0",
+  "analyzed_at": "2026-02-01T20:02:11.021294+00:00",
+  "metadata": {
+    "agent_id": "test-agent",
+    "name": "test-agent",
+    "version": "0.0.0",
+    "author": "Unknown",
+    "source_url": "",
+    "description": "A test AI agent for validation",
+    "imported_at": "2026-02-01T20:02:11.020400+00:00"
+  },
+  "capabilities": [
+    {
+      "category": "file_read",
+      "description": "Read arbitrary files",
+      "scope": "read_file",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'read_file' has known risk profile",
+      "source": "tools.read_file",
+      "confidence": 1.0
+    },
+    {
+      "category": "process_spawn",
+      "description": "Tool: run_command",
+      "scope": "run_command",
+      "risk_level": "high",
+      "risk_reason": "Inferred from tool name/description",
+      "source": "tools.run_command",
+      "confidence": 0.5
+    }
+  ],
+  "analysis_warnings": [],
+  "hashes": {
+    "config": "d44c308387f062ef",
+    "prompt": "1b002a73137c1173",
+    "tools": "8a411c7e51da3585",
+    "manifest": "edefa75451c8009d"
+  },
+  "summary": {
+    "total_capabilities": 2,
+    "max_risk_level": "high",
+    "by_risk": {
+      "medium": 1,
+      "high": 1
+    }
+  }
+}

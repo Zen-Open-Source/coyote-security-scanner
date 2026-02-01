@@ -729,6 +729,13 @@ def main():
         metavar="FILE",
         help="Write SARIF output to FILE"
     )
+    parser.add_argument(
+        "--html",
+        nargs="?",
+        const="-",
+        metavar="FILE",
+        help="Output results as HTML dashboard (to FILE or default reports dir)"
+    )
 
     args = parser.parse_args()
 
@@ -763,6 +770,11 @@ def main():
         ignore_file=args.ignore_file,
         no_ignore=args.no_ignore,
     )
+
+    # When outputting machine-readable data to stdout, redirect TUI to stderr
+    stdout_output = (getattr(args, 'sarif', None) == "-") or (getattr(args, 'html', None) == "-")
+    if stdout_output:
+        tui.console = Console(stderr=True)
 
     # Handle history scan mode
     if args.history:
@@ -829,6 +841,19 @@ def main():
             with open(sarif_output_path, "w", encoding="utf-8") as f:
                 f.write(sarif_json)
             tui.console.print(f"[dim]SARIF report saved: {sarif_output_path}[/]")
+
+    # Handle HTML output if requested
+    if args.html and tui.scan_result:
+        from .html_report import generate_html_report
+        html_content = generate_html_report(tui.scan_result, tui.last_commit)
+        if args.html == "-":
+            print(html_content)
+        else:
+            import os
+            os.makedirs(os.path.dirname(args.html) or ".", exist_ok=True)
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            tui.console.print(f"[dim]HTML report saved: {args.html}[/]")
 
     # Save baseline if requested
     if args.save_baseline and tui.scan_result:

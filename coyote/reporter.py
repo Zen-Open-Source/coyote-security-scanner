@@ -6,6 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 
+from .html_report import generate_html_report
 from .patterns import Severity
 from .sarif import generate_sarif, sarif_to_json
 from .scanner import ScanResult
@@ -26,7 +27,7 @@ def _finding_to_dict(f) -> dict:
 def generate_json_report(result: ScanResult, commit_hash: str = "") -> str:
     """Generate a JSON-formatted scan report."""
     report = {
-        "scanner": "Coyote v1.0",
+        "scanner": "Coyote v1.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "repo_path": result.repo_path,
         "commit": commit_hash,
@@ -143,6 +144,12 @@ def save_reports(
         path = os.path.join(report_dir, f"coyote_report_{timestamp}.sarif")
         with open(path, "w", encoding="utf-8") as f:
             f.write(generate_sarif_report(result))
+        saved.append(path)
+
+    if "html" in formats:
+        path = os.path.join(report_dir, f"coyote_report_{timestamp}.html")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(generate_html_report(result, commit_hash))
         saved.append(path)
 
     return saved
