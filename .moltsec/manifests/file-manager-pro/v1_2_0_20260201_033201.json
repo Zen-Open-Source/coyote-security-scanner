@@ -1,0 +1,184 @@
+{
+  "manifest_version": "1.0",
+  "analyzed_at": "2026-02-01T03:32:01.121725+00:00",
+  "metadata": {
+    "agent_id": "file-manager-pro",
+    "name": "File Manager Pro",
+    "version": "1.2.0",
+    "author": "random-dev-42",
+    "source_url": "https://moltbook.io/agents/file-manager-pro",
+    "description": "A powerful file management agent that helps organize your documents",
+    "imported_at": "2026-02-01T03:32:01.119531+00:00"
+  },
+  "capabilities": [
+    {
+      "category": "file_read",
+      "description": "Declared file_read capability",
+      "scope": "~/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_read",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Declared file_read capability",
+      "scope": "/tmp/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_read",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Declared file_write capability",
+      "scope": "~/Documents/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_write",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Declared file_write capability",
+      "scope": "/tmp/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_write",
+      "confidence": 1.0
+    },
+    {
+      "category": "network_outbound",
+      "description": "Declared network capability",
+      "scope": "https://api.filemanager.io/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.network",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "write\": [\"~/Document",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "config",
+      "confidence": 1.0
+    },
+    {
+      "category": "network_outbound",
+      "description": "Make HTTP requests",
+      "scope": "https://moltbook.io/agents/file-manager-pro\", \"description\": \"A powerful file management agent that helps organize your documents\", \"permissions\": {\"file_read\": [\"~/*\", \"/tmp/*\"], \"file_write\": [\"~/Do",
+      "risk_level": "medium",
+      "risk_reason": "Can send data to external servers",
+      "source": "config",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Read SSH keys and config",
+      "scope": "~/.ssh/config",
+      "risk_level": "critical",
+      "risk_reason": "SSH keys provide authentication to remote systems",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Read AWS credentials",
+      "scope": "~/.aws/credentials",
+      "risk_level": "critical",
+      "risk_reason": "AWS credentials can access cloud infrastructure",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "write, and organize file",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "process_spawn",
+      "description": "Invoke shell directly",
+      "scope": "sh ",
+      "risk_level": "high",
+      "risk_reason": "Direct shell access enables arbitrary command execution",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "secret_access",
+      "description": "Access stored secrets",
+      "scope": "credentials if the use",
+      "risk_level": "high",
+      "risk_reason": "Can read stored passwords/credentials",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Read arbitrary files",
+      "scope": "read_file",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'read_file' has known risk profile",
+      "source": "tools.read_file",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write arbitrary files",
+      "scope": "write_file",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'write_file' has known risk profile",
+      "source": "tools.write_file",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "Write content to a file",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "tools.write_file.description",
+      "confidence": 1.0
+    },
+    {
+      "category": "process_spawn",
+      "description": "Execute arbitrary commands",
+      "scope": "execute_command",
+      "risk_level": "critical",
+      "risk_reason": "Tool 'execute_command' matches known pattern",
+      "source": "tools.execute_command",
+      "confidence": 0.7
+    },
+    {
+      "category": "network_outbound",
+      "description": "Make HTTP requests",
+      "scope": "http_request",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'http_request' has known risk profile",
+      "source": "tools.http_request",
+      "confidence": 1.0
+    }
+  ],
+  "analysis_warnings": [],
+  "hashes": {
+    "config": "5c9a406a0006c964",
+    "prompt": "c0181cc4711f1c2d",
+    "tools": "47ada1b062fbff28",
+    "manifest": "f192fb7148a1de77"
+  },
+  "summary": {
+    "total_capabilities": 17,
+    "max_risk_level": "critical",
+    "by_risk": {
+      "medium": 12,
+      "critical": 3,
+      "high": 2
+    }
+  }
+}

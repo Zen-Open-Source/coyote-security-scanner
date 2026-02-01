@@ -1,8 +1,10 @@
 # Coyote
 
-**Autonomous Repository Security Scanner**
+**Security Scanner for Repositories and AI Agents**
 
-Coyote monitors public GitHub repos, detects new commits, and scans for security issues. It features a TUI with an ASCII coyote character that reacts to scan results.
+Coyote is a dual-purpose security tool:
+1. **Repository Scanning** - Detect secrets, credentials, and security issues in code
+2. **AI Agent Analysis** - Analyze OpenClaw/Moltbot agents for security risks before running them
 
 ```
                        .
@@ -19,6 +21,7 @@ Coyote monitors public GitHub repos, detects new commits, and scans for security
 
 ## Features
 
+### Repository Scanning
 - **Comprehensive Detection**: Secrets, credentials, sensitive files, and security anti-patterns
 - **Entropy Detection**: Find high-randomness strings that are likely secrets (custom tokens, passwords)
 - **Git History Scanning**: Detect secrets in past commits, even if later "removed"
@@ -29,8 +32,14 @@ Coyote monitors public GitHub repos, detects new commits, and scans for security
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
-- **Stable Finding IDs**: Deterministic IDs for each finding enable diffing, suppression, and tracking
-- **Configurable**: YAML-based configuration with sensible defaults
+
+### AI Agent Security (NEW in v0.9)
+- **Agent Intake Analysis**: Static analysis of agent configs, prompts, and tools
+- **Capability Manifests**: Structured representation of what an agent can do
+- **Permission Diffing**: Track changes when agents are updated
+- **Risk Assessment**: Automatic risk level classification (LOW to CRITICAL)
+- **Runtime Guardrails**: Lightweight monitoring and first-use prompting
+- **Policy Generation**: Machine-readable security policies for runtime enforcement
 
 ## Installation
 
@@ -55,44 +64,69 @@ chmod +x coyote.sh
 
 ## Quick Start
 
-### Scan a Local Repository
+### Repository Scanning
 
 ```bash
-# Single scan with TUI output
+# Scan a repository
+python3 -m coyote scan --repo /path/to/your/repo
+
+# Or use legacy syntax (backward compatible)
 python3 -m coyote --repo /path/to/your/repo
 
 # Save reports after scanning
-python3 -m coyote --repo /path/to/your/repo --report
+python3 -m coyote scan --repo /path/to/your/repo --report
+
+# Interactive TUI mode
+python3 -m coyote scan --repo /path/to/your/repo --interactive
 ```
 
-### Interactive Mode
-
-```bash
-# Launch the full TUI with keyboard controls
-python3 -m coyote --repo /path/to/your/repo --interactive
-```
-
-**Keyboard Controls:**
+**Keyboard Controls (Interactive Mode):**
 - `S` - Run scan now
 - `R` - Save report
 - `Q` - Quit
+
+### AI Agent Security Analysis
+
+```bash
+# Analyze an agent config
+python3 -m coyote agent analyze ./my-agent.json
+
+# Track permission changes over time
+python3 -m coyote agent analyze ./my-agent.json --register
+python3 -m coyote agent diff my-agent-id
+
+# Generate a security policy
+python3 -m coyote agent policy my-agent-id --strict --output policy.json
+```
 
 ### Watch a Remote Repository
 
 ```bash
 # Monitor a GitHub repo for new commits
-./coyote.sh --repo-url https://github.com/user/repo --interval 60
+./coyote.sh scan --repo-url https://github.com/user/repo --interval 60
 
 # Run once and exit
-./coyote.sh --repo-url https://github.com/user/repo --once
+./coyote.sh scan --repo-url https://github.com/user/repo --once
+
+# Analyze an agent
+./coyote.sh agent analyze ./my-agent.json
 ```
 
 ## Usage
 
-### Python Module
+### Commands
+
+Coyote has two main commands:
 
 ```bash
-python3 -m coyote [OPTIONS]
+python3 -m coyote scan [OPTIONS]    # Repository scanning
+python3 -m coyote agent [COMMAND]   # AI agent analysis
+```
+
+### Repository Scanning Options
+
+```bash
+python3 -m coyote scan [OPTIONS]
 
 Options:
   --repo PATH            Path to repository to scan
@@ -1165,23 +1199,152 @@ print("\nPattern tests complete!")
 EOF
 ```
 
+## AI Agent Security
+
+Coyote can analyze OpenClaw/Moltbot AI agents before you run them, helping you understand what capabilities they have and what risks they pose.
+
+### Why Agent Security Matters
+
+When you import an AI agent from Moltbook or other sources, you're giving it access to your machine. Agents can:
+- Read sensitive files (SSH keys, credentials, browser data)
+- Make network requests (potentially exfiltrating data)
+- Execute shell commands
+- Spawn other agents
+- Self-modify their behavior
+
+Coyote's agent analysis helps you understand these risks **before** running the agent.
+
+### Agent Analysis Commands
+
+```bash
+# Analyze an agent config file
+python3 -m coyote agent analyze ./my-agent.json
+
+# Output in different formats
+python3 -m coyote agent analyze ./my-agent.json --format markdown
+python3 -m coyote agent analyze ./my-agent.json --format json
+
+# Register agent for tracking
+python3 -m coyote agent analyze ./my-agent.json --register
+
+# Show permission changes between versions
+python3 -m coyote agent diff my-agent-id
+
+# Generate runtime security policy
+python3 -m coyote agent policy my-agent-id --strict
+
+# List all tracked agents
+python3 -m coyote agent list
+```
+
+### Example Safety Summary
+
+```
+============================================================
+AGENT SAFETY SUMMARY
+============================================================
+
+Agent: File Manager Pro
+Version: 1.2.0
+Author: random-dev-42
+
+Overall Risk:  CRITICAL
+
+Capabilities by Risk Level:
+   CRITICAL: 3
+   HIGH: 2
+   MEDIUM: 12
+
+HIGH-RISK CAPABILITIES:
+----------------------------------------
+   Read Files
+     Scope: ~/.ssh/config
+     Why risky: SSH keys provide authentication to remote systems
+
+   Run Commands
+     Scope: execute_command
+     Why risky: Can execute arbitrary system commands
+```
+
+### Permission Diffing
+
+When agents are updated, Coyote tracks what changed:
+
+```
+============================================================
+AGENT PERMISSION CHANGES
+============================================================
+
+Agent: file-manager-pro
+Version: 1.2.0 -> 1.3.0
+
+RISK ESCALATIONS:
+----------------------------------------
+  Read Kubernetes config
+    NONE -> CRITICAL
+    Scope: ~/.kube/config
+
+NEW CAPABILITIES (3):
+----------------------------------------
+  +  Spawn Agents: spawn_agent
+  +  Execute Code: eval_script
+```
+
+### Risk Levels
+
+| Level | Meaning | Examples |
+|-------|---------|----------|
+| CRITICAL | Severe risk, requires careful review | SSH key access, code evaluation, shell execution |
+| HIGH | Significant risk | Credential access, agent spawning, browser data |
+| MEDIUM | Noteworthy | File read/write, network requests |
+| LOW | Minor concern | System info, clipboard access |
+
+### Capability Categories
+
+| Category | Description |
+|----------|-------------|
+| `file_read` | Read files from filesystem |
+| `file_write` | Write/modify files |
+| `network_outbound` | Make HTTP/WebSocket requests |
+| `process_spawn` | Execute shell commands |
+| `code_execution` | Eval/exec dynamic code |
+| `secret_access` | Access stored credentials |
+| `self_modification` | Modify own config/prompt |
+| `agent_spawning` | Create other agents |
+| `browser_access` | Control browser, read data |
+
+---
+
 ## Project Structure
 
 ```
 coyote-repo-scanner/
-├── coyote.sh              # Bash watcher loop
+├── coyote.sh              # Bash watcher/runner script
 ├── coyote/
 │   ├── __init__.py        # Package init (version)
 │   ├── __main__.py        # Entry point for python -m coyote
-│   ├── patterns.py        # Regex patterns for detection
-│   ├── scanner.py         # Core scanning engine
+│   ├── patterns.py        # Regex patterns for repo scanning
+│   ├── scanner.py         # Core repo scanning engine
 │   ├── coyote_art.py      # ASCII art poses
 │   ├── tui.py             # Rich-based terminal UI
 │   ├── config.py          # YAML configuration loader
-│   └── reporter.py        # JSON/Markdown report generation
+│   ├── reporter.py        # JSON/Markdown/SARIF report generation
+│   ├── sarif.py           # SARIF output format
+│   ├── baseline.py        # Scan diffing/baseline
+│   ├── entropy.py         # Entropy-based detection
+│   ├── history.py         # Git history scanning
+│   ├── suppress.py        # Finding suppression
+│   ├── notifications.py   # Webhook notifications
+│   └── agents/            # AI Agent Security module
+│       ├── __init__.py    # Agent security exports
+│       ├── analyzer.py    # Static analysis engine
+│       ├── models.py      # Data models (Capability, Manifest, etc.)
+│       ├── tracker.py     # Permission tracking and diffing
+│       ├── runtime.py     # Runtime guardrails
+│       ├── output.py      # Safety summary generation
+│       └── examples/      # Example agent configs
 ├── config.example.yaml    # Example configuration
 ├── requirements.txt       # Python dependencies
-├── progress.txt           # Build log and learnings
 └── README.md              # This file
 ```
 
@@ -1286,8 +1449,11 @@ The coyote character changes based on scanner state:
 - [x] ~~Entropy-based secret detection~~ - **Added in v0.6!**
 - [x] ~~Finding suppression by ID~~ - **Added in v0.7!**
 - [x] ~~SARIF output for GitHub Code Scanning~~ - **Added in v0.8!**
+- [x] ~~AI Agent security analysis~~ - **Added in v0.9!**
 - [ ] Custom pattern definitions via config
 - [ ] CI/CD integration (GitHub Actions, GitLab CI)
+- [ ] Agent runtime sandboxing
+- [ ] Community agent reputation scores
 - [x] ~~Scan diffing (compare scans to detect new findings)~~ - **Added in v0.3!**
 
 ## License

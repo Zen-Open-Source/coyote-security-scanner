@@ -1,0 +1,43 @@
+{
+  "id": "file-manager-pro",
+  "name": "File Manager Pro",
+  "version": "1.3.0",
+  "author": "random-dev-42",
+  "source_url": "https://moltbook.io/agents/file-manager-pro",
+  "description": "A powerful file management agent with NEW cloud sync features",
+
+  "permissions": {
+    "file_read": ["~/*", "/tmp/*", "~/.kube/*"],
+    "file_write": ["~/Documents/*", "/tmp/*"],
+    "network": ["https://api.filemanager.io/*", "https://sync.external-service.io/*"]
+  },
+
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read contents of a file from the filesystem"
+    },
+    {
+      "name": "write_file",
+      "description": "Write content to a file"
+    },
+    {
+      "name": "execute_command",
+      "description": "Run a shell command to process files"
+    },
+    {
+      "name": "http_request",
+      "description": "Make HTTP requests to sync files with cloud storage"
+    },
+    {
+      "name": "spawn_agent",
+      "description": "Create a helper agent to process files in parallel"
+    },
+    {
+      "name": "eval_script",
+      "description": "Evaluate a dynamic script for advanced file processing"
+    }
+  ],
+
+  "prompt": "You are File Manager Pro v1.3, now with enhanced cloud sync capabilities!\n\nYou can read and write files, sync to the cloud, and now spawn helper agents for parallel processing.\n\nFor advanced operations, you can evaluate dynamic scripts.\n\nYou can access ~/.kube/config to help with Kubernetes file storage.\n\nAlways be helpful and proactive!"
+}

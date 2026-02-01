@@ -1,0 +1,220 @@
+{
+  "manifest_version": "1.0",
+  "analyzed_at": "2026-02-01T03:32:17.262872+00:00",
+  "metadata": {
+    "agent_id": "file-manager-pro",
+    "name": "File Manager Pro",
+    "version": "1.3.0",
+    "author": "random-dev-42",
+    "source_url": "https://moltbook.io/agents/file-manager-pro",
+    "description": "A powerful file management agent with NEW cloud sync features",
+    "imported_at": "2026-02-01T03:32:17.260623+00:00"
+  },
+  "capabilities": [
+    {
+      "category": "file_read",
+      "description": "Declared file_read capability",
+      "scope": "~/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_read",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Declared file_read capability",
+      "scope": "/tmp/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_read",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Declared file_read capability",
+      "scope": "~/.kube/*",
+      "risk_level": "critical",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_read",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Declared file_write capability",
+      "scope": "~/Documents/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_write",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Declared file_write capability",
+      "scope": "/tmp/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.file_write",
+      "confidence": 1.0
+    },
+    {
+      "category": "network_outbound",
+      "description": "Declared network capability",
+      "scope": "https://api.filemanager.io/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.network",
+      "confidence": 1.0
+    },
+    {
+      "category": "network_outbound",
+      "description": "Declared network capability",
+      "scope": "https://sync.external-service.io/*",
+      "risk_level": "medium",
+      "risk_reason": "Explicitly declared in config",
+      "source": "config.permissions.network",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "write\": [\"~/Document",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "config",
+      "confidence": 1.0
+    },
+    {
+      "category": "network_outbound",
+      "description": "Make HTTP requests",
+      "scope": "https://moltbook.io/agents/file-manager-pro\", \"description\": \"A powerful file management agent with NEW cloud sync features\", \"permissions\": {\"file_read\": [\"~/*\", \"/tmp/*\", \"~/.kube/*\"], \"file_write\":",
+      "risk_level": "medium",
+      "risk_reason": "Can send data to external servers",
+      "source": "config",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Read Kubernetes config",
+      "scope": "~/.kube/config",
+      "risk_level": "critical",
+      "risk_reason": "Kube config provides cluster access",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "write file",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "agent_spawning",
+      "description": "Spawn other agents",
+      "scope": "spawn helper agent",
+      "risk_level": "high",
+      "risk_reason": "Can create agents that may have different permissions",
+      "source": "prompt",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_read",
+      "description": "Read arbitrary files",
+      "scope": "read_file",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'read_file' has known risk profile",
+      "source": "tools.read_file",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write arbitrary files",
+      "scope": "write_file",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'write_file' has known risk profile",
+      "source": "tools.write_file",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "Write content to a file",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "tools.write_file.description",
+      "confidence": 1.0
+    },
+    {
+      "category": "process_spawn",
+      "description": "Execute arbitrary commands",
+      "scope": "execute_command",
+      "risk_level": "critical",
+      "risk_reason": "Tool 'execute_command' matches known pattern",
+      "source": "tools.execute_command",
+      "confidence": 0.7
+    },
+    {
+      "category": "network_outbound",
+      "description": "Make HTTP requests",
+      "scope": "http_request",
+      "risk_level": "medium",
+      "risk_reason": "Tool 'http_request' has known risk profile",
+      "source": "tools.http_request",
+      "confidence": 1.0
+    },
+    {
+      "category": "agent_spawning",
+      "description": "Create new agents",
+      "scope": "spawn_agent",
+      "risk_level": "high",
+      "risk_reason": "Tool 'spawn_agent' has known risk profile",
+      "source": "tools.spawn_agent",
+      "confidence": 1.0
+    },
+    {
+      "category": "file_write",
+      "description": "Write to files",
+      "scope": "Create a helper agent to process file",
+      "risk_level": "medium",
+      "risk_reason": "Can modify or create files on disk",
+      "source": "tools.spawn_agent.description",
+      "confidence": 1.0
+    },
+    {
+      "category": "agent_spawning",
+      "description": "Spawn other agents",
+      "scope": "Create a helper agent",
+      "risk_level": "high",
+      "risk_reason": "Can create agents that may have different permissions",
+      "source": "tools.spawn_agent.description",
+      "confidence": 1.0
+    },
+    {
+      "category": "code_execution",
+      "description": "Evaluate code dynamically",
+      "scope": "eval_script",
+      "risk_level": "critical",
+      "risk_reason": "Tool 'eval_script' matches known pattern",
+      "source": "tools.eval_script",
+      "confidence": 0.7
+    }
+  ],
+  "analysis_warnings": [],
+  "hashes": {
+    "config": "45080362641255c9",
+    "prompt": "f190e78612cd819e",
+    "tools": "8a32deeaa10c6b6c",
+    "manifest": "cef22484ae98690e"
+  },
+  "summary": {
+    "total_capabilities": 21,
+    "max_risk_level": "critical",
+    "by_risk": {
+      "medium": 14,
+      "critical": 4,
+      "high": 3
+    }
+  }
+}

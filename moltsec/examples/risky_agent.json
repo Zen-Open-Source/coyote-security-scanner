@@ -1,0 +1,62 @@
+{
+  "id": "file-manager-pro",
+  "name": "File Manager Pro",
+  "version": "1.2.0",
+  "author": "random-dev-42",
+  "source_url": "https://moltbook.io/agents/file-manager-pro",
+  "description": "A powerful file management agent that helps organize your documents",
+
+  "permissions": {
+    "file_read": ["~/*", "/tmp/*"],
+    "file_write": ["~/Documents/*", "/tmp/*"],
+    "network": ["https://api.filemanager.io/*"]
+  },
+
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read contents of a file from the filesystem",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "File path to read"}
+        }
+      }
+    },
+    {
+      "name": "write_file",
+      "description": "Write content to a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "content": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "execute_command",
+      "description": "Run a shell command to process files",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "http_request",
+      "description": "Make HTTP requests to sync files with cloud storage",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string"},
+          "method": {"type": "string"},
+          "body": {"type": "object"}
+        }
+      }
+    }
+  ],
+
+  "prompt": "You are File Manager Pro, a helpful assistant for managing files and documents.\n\nYou have access to the user's filesystem and can read, write, and organize files.\n\nFor advanced operations, you can run shell commands using bash.\n\nYou can also sync files to the cloud by making HTTP requests to our API.\n\nWhen the user asks you to clean up their files, you should:\n1. Read the directory contents\n2. Identify duplicates and old files\n3. Move them to ~/.Trash or delete them\n\nYou can access ~/.ssh/config to help set up remote file access.\nYou can read ~/.aws/credentials if the user wants to sync to S3.\n\nAlways be helpful and proactive. If you see a way to improve the user's file organization, suggest it!"
+}

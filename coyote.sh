@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 #
-# Coyote - Repository Security Watcher Loop
+# Coyote - Security Scanner for Repositories and AI Agents
 #
-# Polls a target repo for new commits. When changes are detected,
-# pulls latest code and runs the security scanner.
+# Two modes:
+#   1. Repository scanning: Detect secrets, credentials, and security issues
+#   2. Agent scanning: Analyze OpenClaw/Moltbot AI agents for security risks
 #
 # Usage:
-#   ./coyote.sh                        # Use config.yaml defaults
-#   ./coyote.sh --repo-url <url>       # Watch a specific repo
-#   ./coyote.sh --local-path <path>    # Scan a local repo
-#   ./coyote.sh --interval <seconds>   # Set poll interval
-#   ./coyote.sh --once                 # Run scan once and exit
-#   ./coyote.sh --interactive          # Launch interactive TUI
+#   ./coyote.sh scan [OPTIONS]         # Scan a repository
+#   ./coyote.sh agent [SUBCOMMAND]     # Analyze AI agents
+#   ./coyote.sh --repo-url <url>       # Legacy: watch a specific repo
+#   ./coyote.sh --local-path <path>    # Legacy: scan a local repo
 #
 
 set -euo pipefail
@@ -363,14 +362,64 @@ run_scan() {
     return $exit_code
 }
 
-# ─── Main Loop ──────────────────────────────────────────────────────
-main() {
+# ─── Agent Mode ────────────────────────────────────────────────────
+run_agent_mode() {
+    # Pass all remaining arguments to the Python agent CLI
+    python3 -m coyote agent "$@"
+    exit $?
+}
+
+# ─── Help ──────────────────────────────────────────────────────────
+print_main_help() {
+    echo -e "${BOLD}${CYAN}"
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║  COYOTE - Security Scanner for Repos & AI Agents         ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    print_coyote
+    echo ""
+    echo "USAGE:"
+    echo "    ./coyote.sh <COMMAND> [OPTIONS]"
+    echo ""
+    echo "COMMANDS:"
+    echo "    scan        Scan a repository for security issues"
+    echo "    agent       Analyze OpenClaw/Moltbot AI agents"
+    echo ""
+    echo "SCAN OPTIONS:"
+    echo "    --repo-url URL       GitHub repo URL to watch"
+    echo "    --local-path PATH    Local repo path (default: ./watched_repo)"
+    echo "    --once               Run scan once and exit"
+    echo "    --interactive        Launch interactive TUI"
+    echo "    --diff               Compare against baseline"
+    echo "    --entropy            Enable entropy-based detection"
+    echo "    --history            Scan git history for secrets"
+    echo "    --sarif FILE         Output SARIF format"
+    echo "    --help               Show full scan options"
+    echo ""
+    echo "AGENT SUBCOMMANDS:"
+    echo "    agent analyze FILE   Analyze an agent config file"
+    echo "    agent diff ID        Show permission changes"
+    echo "    agent policy ID      Generate security policy"
+    echo "    agent list           List tracked agents"
+    echo ""
+    echo "EXAMPLES:"
+    echo "    # Scan a repository"
+    echo "    ./coyote.sh scan --local-path /path/to/repo --once"
+    echo ""
+    echo "    # Analyze an AI agent"
+    echo "    ./coyote.sh agent analyze ./my-agent.json"
+    echo "    ./coyote.sh agent diff my-agent-id"
+    echo ""
+}
+
+# ─── Main Loop (Repository Scanning) ───────────────────────────────
+run_scan_mode() {
     parse_args "$@"
     load_config
 
     echo -e "${BOLD}${CYAN}"
     echo "╔═══════════════════════════════════════════╗"
-    echo "║  COYOTE v1.0 - Repo Security Scanner     ║"
+    echo "║  COYOTE - Repository Security Scanner    ║"
     echo "╚═══════════════════════════════════════════╝"
     echo -e "${NC}"
     print_coyote
@@ -420,6 +469,35 @@ main() {
 
         sleep "$POLL_INTERVAL"
     done
+}
+
+# ─── Main Entry Point ──────────────────────────────────────────────
+main() {
+    # Check for subcommand
+    if [[ $# -eq 0 ]]; then
+        print_main_help
+        exit 0
+    fi
+
+    local cmd="$1"
+    shift
+
+    case "$cmd" in
+        scan)
+            run_scan_mode "$@"
+            ;;
+        agent)
+            run_agent_mode "$@"
+            ;;
+        --help|-h)
+            print_main_help
+            exit 0
+            ;;
+        *)
+            # Legacy mode: assume it's scan arguments
+            run_scan_mode "$cmd" "$@"
+            ;;
+    esac
 }
 
 main "$@"
