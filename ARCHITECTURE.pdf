@@ -1,0 +1,528 @@
+%PDF-1.4
+%âãÏÓ
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 2341 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 54 738 Tm
+() Tj
+0 -14 Td
+(Coyote Architecture Overview) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(A technical, shareable overview of the Coyote repository and agent security scanner, based) Tj
+0 -14 Td
+(on a codebase review. This document is designed to gather feedback on structure, flows, and) Tj
+0 -14 Td
+(extensibility.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Executive Summary) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Coyote is a dual-purpose security tool that scans repositories for secrets and security) Tj
+0 -14 Td
+(smells, and analyzes AI agent configurations for risky capabilities. The repo contains a) Tj
+0 -14 Td
+(primarycoyotepackage with a Rich-based TUI and CLI, a scanning engine with pattern and) Tj
+0 -14 Td
+(entropy detection, reporting in multiple formats, baseline diffing, git history scanning,) Tj
+0 -14 Td
+(and webhook notifications. Agent analysis lives undercoyote/agents/and parallels a legacy or) Tj
+0 -14 Td
+(standalonemoltsec/package with similar functionality.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Goals) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Detect secrets, credentials, and security anti-patterns in code and history.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Provide actionable reports in multiple formats for CI and humans.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Track findings over time via stable IDs and baselines.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Analyze AI agents for risky permissions and generate runtime policies.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Offer a usable CLI and TUI for local workflows and watchers.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Non-Goals) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Full static analysis of complex code semantics.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Live runtime sandboxing of arbitrary repositories.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Remediation or automated secret rotation.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(System Context) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Coyote is run locally or in CI/CD. It consumes a repo path or a GitHub URL) Tj
+0 -14 Td
+(\(viacoyote.shwatcher\). Outputs are reports and optional webhook notifications. Agent) Tj
+0 -14 Td
+(analysis consumes agent config files and produces manifests, diffs, and policies.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Architecture Diagram) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(flowchart LR) Tj
+0 -14 Td
+(user["User or CI"] --> cli["CLI/TUI: coyote/__main__.py + coyote/tui.py"]) Tj
+0 -14 Td
+ET
+endstream
+endobj
+3 0 obj
+<< /Length 1991 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 54 738 Tm
+(cli --> scan["Scanner Engine"]) Tj
+0 -14 Td
+(scan --> patterns["Pattern Rules"]) Tj
+0 -14 Td
+(scan --> entropy["Entropy Detection"]) Tj
+0 -14 Td
+(scan --> suppress["Suppression Rules"]) Tj
+0 -14 Td
+(scan --> reports["Report Writers"]) Tj
+0 -14 Td
+(scan --> baseline["Baseline Store"]) Tj
+0 -14 Td
+(cli --> history["Git History Scan"]) Tj
+0 -14 Td
+(cli --> notify["Webhook Notifications"]) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(user --> agentcli["Agent CLI: coyote/agents/__main__.py"]) Tj
+0 -14 Td
+(agentcli --> agentanalyze["Agent Analyzer"]) Tj
+0 -14 Td
+(agentcli --> agenttrack["Permission Tracker"]) Tj
+0 -14 Td
+(agentcli --> agentpolicy["Policy Generator"]) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(reports --> outputs["JSON / Markdown / SARIF / HTML"]) Tj
+0 -14 Td
+(baseline --> diff["Diff Summary"]) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Core Flows) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Repository Scan) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/tui.pyparses arguments and loads config.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/scanner.pycollects files, filters exclusions, and checks size.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/patterns.pyapplies secret and smell regex rules.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/entropy.pyoptionally scans for high-entropy candidate strings.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/suppress.pyfilters findings using.coyote-ignore.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Results are displayed in TUI or saved viacoyote/reporter.py.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Baseline Diff) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- A scan is saved bycoyote/baseline.pyas.coyote-baseline.json.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- A new scan compares finding IDs to categorize new, fixed, and existing.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/tui.pyrenders a diff panel and can fail CI via--fail-on-new.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Git History Scan) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/history.pyrunsgit log -pand parses added lines.) Tj
+0 -14 Td
+ET
+endstream
+endobj
+4 0 obj
+<< /Length 2002 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 54 738 Tm
+() Tj
+0 -14 Td
+(- Secret patterns are matched only against additions for each commit.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Findings are grouped by commit with metadata for reporting.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Agent Analysis) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- coyote/agents/__main__.pyloads an agent config file.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Analyzer creates a capability manifest and risk summary.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Tracker stores versions and computes diffs.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Policy generator emits runtime policy JSON with strictness modes.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Key Modules and Responsibilities) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(ModuleResponsibility) Tj
+0 -14 Td
+(coyote/__main__.pyCLI entry and command routing) Tj
+0 -14 Td
+(coyote/tui.pyRich-based UI, CLI args, scan orchestration) Tj
+0 -14 Td
+(coyote/scanner.pyFile collection and pattern application) Tj
+0 -14 Td
+(coyote/patterns.pySecret and smell rules, sensitive filenames) Tj
+0 -14 Td
+(coyote/entropy.pyEntropy-based secret detection) Tj
+0 -14 Td
+(coyote/suppress.py.coyote-ignoreparsing and filtering) Tj
+0 -14 Td
+(coyote/reporter.pyJSON/Markdown/SARIF/HTML reports) Tj
+0 -14 Td
+(coyote/baseline.pyBaseline save/load and diffing) Tj
+0 -14 Td
+(coyote/history.pyGit history scanning) Tj
+0 -14 Td
+(coyote/notifications.pySlack/Discord notifications) Tj
+0 -14 Td
+(coyote/agents/*Agent analysis, diffing, policy) Tj
+0 -14 Td
+(moltsec/*Standalone agent analysis package) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Data Model Overview) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Finding) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- finding_idis a stable hash of rule, file, line, and match value.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Enables diffing across scans and suppression by ID.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Baseline) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- JSON file storing findings and metadata.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Diff uses set comparisons onfinding_id.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+ET
+endstream
+endobj
+5 0 obj
+<< /Length 1815 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 54 738 Tm
+(Agent Manifest) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Structured model with capabilities, risks, metadata, and summary.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Used for diffing and policy generation.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Configuration) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- config.yamloverrides defaults incoyote/config.py.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- config.example.yamlprovides a template for repo/branch, exclusions, outputs, and webhooks.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Extensibility) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Add rules tocoyote/patterns.pyfor new secret/smell types.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Add new output formats incoyote/reporter.py.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Extend agent capability detection incoyote/agents/analyzer.py.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Add new notification channels incoyote/notifications.py.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Strengths) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Clear separation of detection, suppression, diffing, and reporting.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Stable finding IDs enable reliable baselines and suppression.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Multi-format outputs make CI and human review easy.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Agent security analysis is integrated yet separable.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Risks and Opportunities) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Pattern-based detection may yield false positives and misses.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- History scanning parses diffs only and may miss context.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Two agent analysis packages could create drift or duplication.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Regex rules are centralized and can become a bottleneck for performance.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Open Questions) Tj
+0 -14 Td
+ET
+endstream
+endobj
+6 0 obj
+<< /Length 1112 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 54 738 Tm
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Shouldmoltsec/be deprecated or promoted as a standalone package?) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Shouldcoyote/agents/andmoltsec/share a common core?) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Do we want configurable rule packs by ecosystem or language?) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Should entropy detection integrate context heuristics to reduce noise?) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Suggested Next Steps) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Decide on the long-term relationship betweencoyote/agents/andmoltsec/.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Define rule pack strategy and extension mechanisms.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Consider performance profiling for large repos and history scans.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(- Add tests around suppression and diff stability to guard regressions.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(------------------------------------------------------------) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(If you want a version tailored for a pitch deck or a shorter one-pager, I can create that) Tj
+0 -14 Td
+(too.) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+8 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 3 0 R >>
+endobj
+9 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 4 0 R >>
+endobj
+10 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 5 0 R >>
+endobj
+11 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 6 0 R >>
+endobj
+12 0 obj
+<< /Type /Pages /Kids [ 7 0 R 8 0 R 9 0 R 10 0 R 11 0 R ] /Count 5 >>
+endobj
+13 0 obj
+<< /Type /Catalog /Pages 12 0 R >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000019 00000 n 
+0000000089 00000 n 
+0000002482 00000 n 
+0000004525 00000 n 
+0000006579 00000 n 
+0000008446 00000 n 
+0000009610 00000 n 
+0000009737 00000 n 
+0000009864 00000 n 
+0000009991 00000 n 
+0000010119 00000 n 
+0000010247 00000 n 
+0000010333 00000 n 
+trailer
+<< /Size 14 /Root 13 0 R >>
+startxref
+10384
+%%EOF
