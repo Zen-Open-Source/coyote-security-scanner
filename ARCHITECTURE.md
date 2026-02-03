@@ -127,12 +127,6 @@ flowchart LR
 3. Do we want configurable rule packs by ecosystem or language?
 4. Should entropy detection integrate context heuristics to reduce noise?
 
-## Suggested Next Steps
-1. Decide on the long-term relationship between `coyote/agents/` and `moltsec/`.
-2. Define rule pack strategy and extension mechanisms.
-3. Consider performance profiling for large repos and history scans.
-4. Add tests around suppression and diff stability to guard regressions.
-
 ---
 
 If you want a version tailored for a pitch deck or a shorter one-pager, I can create that too.

@@ -424,7 +424,7 @@ ET
 endstream
 endobj
 6 0 obj
-<< /Length 1112 >>
+<< /Length 664 >>
 stream
 BT
 /F1 11 Tf
@@ -446,28 +446,6 @@ BT
 () Tj
 0 -14 Td
 (- Should entropy detection integrate context heuristics to reduce noise?) Tj
-0 -14 Td
-() Tj
-0 -14 Td
-(Suggested Next Steps) Tj
-0 -14 Td
-() Tj
-0 -14 Td
-() Tj
-0 -14 Td
-(- Decide on the long-term relationship betweencoyote/agents/andmoltsec/.) Tj
-0 -14 Td
-() Tj
-0 -14 Td
-(- Define rule pack strategy and extension mechanisms.) Tj
-0 -14 Td
-() Tj
-0 -14 Td
-(- Consider performance profiling for large repos and history scans.) Tj
-0 -14 Td
-() Tj
-0 -14 Td
-(- Add tests around suppression and diff stability to guard regressions.) Tj
 0 -14 Td
 () Tj
 0 -14 Td
@@ -514,15 +492,15 @@ xref
 0000004525 00000 n 
 0000006579 00000 n 
 0000008446 00000 n 
-0000009610 00000 n 
-0000009737 00000 n 
-0000009864 00000 n 
-0000009991 00000 n 
-0000010119 00000 n 
-0000010247 00000 n 
-0000010333 00000 n 
+0000009161 00000 n 
+0000009288 00000 n 
+0000009415 00000 n 
+0000009542 00000 n 
+0000009670 00000 n 
+0000009798 00000 n 
+0000009884 00000 n 
 trailer
 << /Size 14 /Root 13 0 R >>
 startxref
-10384
+9935
 %%EOF
