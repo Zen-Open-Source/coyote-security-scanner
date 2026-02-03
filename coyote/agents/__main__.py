@@ -21,10 +21,12 @@ from . import (
 )
 from .output import (
     DiffReportGenerator,
+    OpenClawReportGenerator,
     SafetySummaryGenerator,
     generate_intake_warning,
     generate_update_warning,
 )
+from .openclaw import OpenClawSecurityAnalyzer
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -130,6 +132,33 @@ def cmd_policy(args: argparse.Namespace) -> int:
         else:
             print(f"Error: Agent not found: {args.agent_id}")
             return 1
+
+
+def cmd_secure_openclaw(args: argparse.Namespace) -> int:
+    """Run OpenClaw-specific security checks."""
+    path = Path(args.path)
+
+    if not path.exists():
+        print(f"Error: Path not found: {path}", file=sys.stderr)
+        return 1
+
+    try:
+        analyzer = OpenClawSecurityAnalyzer()
+        report = analyzer.analyze(str(path))
+    except Exception as e:
+        print(f"Error analyzing OpenClaw installation: {e}", file=sys.stderr)
+        return 1
+
+    generator = OpenClawReportGenerator()
+
+    if args.format == "text":
+        print(generator.generate_text_report(report, show_fix=args.fix))
+    elif args.format == "json":
+        print(generator.generate_json_report(report))
+    elif args.format == "markdown":
+        print(generator.generate_markdown_report(report, show_fix=args.fix))
+
+    return 0
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -240,6 +269,25 @@ Examples:
         help="Use permissive policy (fewer prompts)",
     )
     policy_parser.set_defaults(func=cmd_policy)
+
+    # secure-openclaw command
+    openclaw_parser = subparsers.add_parser(
+        "secure-openclaw",
+        help="Run OpenClaw-specific security checks (CVE-2026-25253 and hardening)",
+    )
+    openclaw_parser.add_argument("path", help="Path to OpenClaw installation, config directory, or config file")
+    openclaw_parser.add_argument(
+        "--format", "-f",
+        choices=["text", "json", "markdown"],
+        default="text",
+        help="Output format (default: text)",
+    )
+    openclaw_parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Show detailed remediation steps for each finding",
+    )
+    openclaw_parser.set_defaults(func=cmd_secure_openclaw)
 
     # list command
     list_parser = subparsers.add_parser(

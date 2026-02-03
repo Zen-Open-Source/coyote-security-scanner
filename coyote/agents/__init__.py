@@ -43,8 +43,10 @@ from .models import (
 )
 from .tracker import ManifestStore, PermissionDiffer, PermissionTracker, PolicyGenerator
 from .runtime import ActionLogger, BehaviorDriftDetector, RuntimeGuard
+from .openclaw import OpenClawSecurityAnalyzer, OpenClawSecurityCheck, OpenClawSecurityReport
 from .output import (
     DiffReportGenerator,
+    OpenClawReportGenerator,
     SafetySummaryGenerator,
     generate_intake_warning,
     generate_update_warning,
@@ -104,8 +106,13 @@ __all__ = [
     "ActionLogger",
     "BehaviorDriftDetector",
     "RuntimeGuard",
+    # OpenClaw
+    "OpenClawSecurityAnalyzer",
+    "OpenClawSecurityCheck",
+    "OpenClawSecurityReport",
     # Output
     "DiffReportGenerator",
+    "OpenClawReportGenerator",
     "SafetySummaryGenerator",
     "generate_intake_warning",
     "generate_update_warning",

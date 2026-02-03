@@ -432,6 +432,110 @@ def generate_intake_warning(manifest: CapabilityManifest) -> str | None:
     return None
 
 
+# =============================================================================
+# OpenClaw Report Generator
+# =============================================================================
+
+class OpenClawReportGenerator:
+    """Generates reports for OpenClaw security assessments."""
+
+    STATUS_LABELS = {
+        "VULNERABLE": "VULNERABLE",
+        "WARNING": "WARNING  ",
+        "SAFE": "PASS     ",
+        "UNKNOWN": "UNKNOWN  ",
+    }
+
+    def generate_text_report(self, report: "OpenClawSecurityReport", show_fix: bool = False) -> str:
+        from .openclaw import OpenClawSecurityReport  # noqa: F811
+
+        lines = []
+        lines.append("=" * 60)
+        lines.append("OPENCLAW SECURITY ASSESSMENT")
+        lines.append("=" * 60)
+        lines.append(f"Target: {report.agent_path}")
+
+        if report.openclaw_version:
+            from .openclaw import _parse_version, _CVE_FIX_VERSION
+            parsed = _parse_version(report.openclaw_version)
+            version_note = ""
+            if parsed and parsed < _CVE_FIX_VERSION:
+                version_note = " (OUTDATED - update to >= 2026.1.29)"
+            elif parsed:
+                version_note = " (up to date)"
+            lines.append(f"Version: {report.openclaw_version}{version_note}")
+        else:
+            lines.append("Version: unknown")
+
+        lines.append("")
+        lines.append("CHECKS:")
+
+        for check in report.checks:
+            label = self.STATUS_LABELS.get(check.status, check.status)
+            lines.append(f"  {label}  {check.check_id}: {check.name}")
+            lines.append(f"              {check.detail}")
+            if show_fix and check.status in ("VULNERABLE", "WARNING", "UNKNOWN"):
+                lines.append(f"              Fix: {check.remediation}")
+
+        lines.append("")
+        parts = []
+        if report.vulnerable_count:
+            parts.append(f"{report.vulnerable_count} VULNERABLE")
+        if report.warning_count:
+            parts.append(f"{report.warning_count} WARNING")
+        if report.unknown_count:
+            parts.append(f"{report.unknown_count} UNKNOWN")
+        if report.safe_count:
+            parts.append(f"{report.safe_count} PASS")
+        lines.append(f"Summary: {' | '.join(parts)}")
+        lines.append("=" * 60)
+
+        return "\n".join(lines)
+
+    def generate_json_report(self, report: "OpenClawSecurityReport") -> str:
+        return json.dumps(report.to_dict(), indent=2)
+
+    def generate_markdown_report(self, report: "OpenClawSecurityReport", show_fix: bool = False) -> str:
+        lines = []
+        lines.append("# OpenClaw Security Assessment")
+        lines.append("")
+        lines.append(f"**Target**: `{report.agent_path}`")
+        lines.append(f"**Version**: {report.openclaw_version or 'unknown'}")
+        lines.append("")
+        lines.append("## Checks")
+        lines.append("")
+        if show_fix:
+            lines.append("| Status | ID | Name | Detail | Remediation |")
+            lines.append("|--------|----|------|--------|-------------|")
+        else:
+            lines.append("| Status | ID | Name | Detail |")
+            lines.append("|--------|----|------|--------|")
+        for check in report.checks:
+            status_badge = f"**{check.status}**"
+            detail = check.detail.replace("|", "\\|")
+            if show_fix:
+                remediation = check.remediation.replace("|", "\\|")
+                lines.append(f"| {status_badge} | {check.check_id} | {check.name} | {detail} | {remediation} |")
+            else:
+                lines.append(f"| {status_badge} | {check.check_id} | {check.name} | {detail} |")
+        lines.append("")
+        lines.append("## Summary")
+        lines.append("")
+        parts = []
+        if report.vulnerable_count:
+            parts.append(f"- **VULNERABLE**: {report.vulnerable_count}")
+        if report.warning_count:
+            parts.append(f"- **WARNING**: {report.warning_count}")
+        if report.unknown_count:
+            parts.append(f"- **UNKNOWN**: {report.unknown_count}")
+        if report.safe_count:
+            parts.append(f"- **PASS**: {report.safe_count}")
+        lines.extend(parts)
+        lines.append("")
+
+        return "\n".join(lines)
+
+
 def generate_update_warning(diff: CapabilityDiff) -> str | None:
     """
     Generate a warning message for agent update, if warranted.

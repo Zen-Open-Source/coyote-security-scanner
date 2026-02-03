@@ -74,6 +74,7 @@ v1.0.0
 - **Risk Assessment**: Automatic risk level classification (LOW to CRITICAL)
 - **Runtime Guardrails**: Lightweight monitoring and first-use prompting
 - **Policy Generation**: Machine-readable security policies for runtime enforcement
+- **OpenClaw Security Checks**: CVE-2026-25253 detection and hardening analysis for OpenClaw installations
 
 ## Installation
 
@@ -1333,6 +1334,85 @@ NEW CAPABILITIES (3):
 | MEDIUM | Noteworthy | File read/write, network requests |
 | LOW | Minor concern | System info, clipboard access |
 
+### OpenClaw Security Checks
+
+Coyote includes targeted security checks for [OpenClaw](https://openclaw.dev) installations, including detection of **CVE-2026-25253** (WebSocket hijacking / token exfiltration leading to remote code execution).
+
+#### CVE-2026-25253 Overview
+
+| Field | Value |
+|-------|-------|
+| Severity | HIGH (CVSS 8.8) |
+| Fixed in | OpenClaw 2026.1.29 |
+| Attack | Crafted link causes Control UI to send gateway token to attacker-controlled WebSocket server. Attacker connects to victim's gateway, disables sandbox, escapes container, and executes arbitrary commands. |
+
+A browser visiting a malicious page acts as a bridge — even if the gateway is bound to `127.0.0.1`, the attacker can reach it through the victim's browser.
+
+#### Usage
+
+```bash
+# Scan an OpenClaw installation directory
+python3 -m coyote agent secure-openclaw /path/to/openclaw/
+
+# Scan a specific config file
+python3 -m coyote agent secure-openclaw /path/to/openclaw/config.json
+
+# Show remediation steps for each finding
+python3 -m coyote agent secure-openclaw /path/to/openclaw/ --fix
+
+# Output as JSON (machine-readable)
+python3 -m coyote agent secure-openclaw /path/to/openclaw/ --format json
+
+# Output as Markdown
+python3 -m coyote agent secure-openclaw /path/to/openclaw/ --format markdown
+```
+
+#### Checks Performed
+
+| Check ID | Name | What It Detects |
+|----------|------|-----------------|
+| CVE-2026-25253 | WebSocket Hijacking / Token Exfiltration | Outdated version, unvalidated `gatewayUrl`, disabled sandbox, gateway exec host, high-risk operator scopes |
+| OPENCLAW-TOKEN-EXPOSURE | Gateway Token in Plaintext | Gateway tokens stored in plaintext config files |
+| OPENCLAW-CONTAINER-ESCAPE | Container Escape Risk | `tools.exec.host` set to `gateway` instead of container-scoped |
+| OPENCLAW-APPROVAL-BYPASS | Exec Approvals Disabled | `exec.approvals` set to `off` |
+| OPENCLAW-OPERATOR-SCOPES | High-Risk Operator Scopes | `operator.admin` or `operator.approvals` scopes enabled |
+| OPENCLAW-WS-ORIGIN | WebSocket Origin Validation | Missing or wildcard (`*`) origin checking |
+| OPENCLAW-LOOPBACK | Loopback Binding (False Security) | Warns that `127.0.0.1` binding does not mitigate CVE-2026-25253 |
+
+#### Example Output
+
+```
+============================================================
+OPENCLAW SECURITY ASSESSMENT
+============================================================
+Target: /path/to/openclaw
+Version: 2026.1.28 (OUTDATED - update to >= 2026.1.29)
+
+CHECKS:
+  VULNERABLE  CVE-2026-25253: WebSocket Hijacking / Token Exfiltration
+              Gateway URL accepted from query string without validation.
+              Attacker can steal token via crafted link, leading to full RCE.
+              Fix: Update to OpenClaw >= 2026.1.29
+
+  WARNING     Gateway token stored in plaintext config
+  WARNING     Operator scopes include admin privileges
+  PASS        Container sandbox enabled (tools.exec.host: docker)
+  PASS        Exec approvals are enabled
+
+Summary: 1 VULNERABLE | 2 WARNING | 2 PASS
+============================================================
+```
+
+#### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `<path>` | Path to OpenClaw installation, config directory, or config file |
+| `--format text\|json\|markdown` | Output format (default: text) |
+| `--fix` | Show detailed remediation steps for each finding |
+
+---
+
 ### Capability Categories
 
 | Category | Description |
@@ -1375,6 +1455,7 @@ coyote-repo-scanner/
 │       ├── models.py      # Data models (Capability, Manifest, etc.)
 │       ├── tracker.py     # Permission tracking and diffing
 │       ├── runtime.py     # Runtime guardrails
+│       ├── openclaw.py    # OpenClaw security checks (CVE-2026-25253)
 │       ├── output.py      # Safety summary generation
 │       └── examples/      # Example agent configs
 ├── config.example.yaml    # Example configuration
