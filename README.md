@@ -49,7 +49,7 @@ Coyote is a dual-purpose security tool:
                                                ...
                                              .
 
-v1.0.0
+v1.2.0
 ```
 *Sniffing out secrets...*
 
@@ -66,6 +66,7 @@ v1.0.0
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
+- **Clawdbot/Moltbot RCE Detection (CVE-2026-25253)**: Flags risky gateway URL overrides and missing WebSocket origin checks
 
 ### AI Agent Security (NEW in v0.9)
 - **Agent Intake Analysis**: Static analysis of agent configs, prompts, and tools

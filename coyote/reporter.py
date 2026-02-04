@@ -27,7 +27,7 @@ def _finding_to_dict(f) -> dict:
 def generate_json_report(result: ScanResult, commit_hash: str = "") -> str:
     """Generate a JSON-formatted scan report."""
     report = {
-        "scanner": "Coyote v1.0.0",
+        "scanner": "Coyote v1.2.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "repo_path": result.repo_path,
         "commit": commit_hash,

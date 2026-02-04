@@ -265,6 +265,20 @@ SMELL_PATTERNS: list[SmellPattern] = [
         description="Hardcoded internal/private IP address detected",
         file_extensions=[],
     ),
+    SmellPattern(
+        name="Clawdbot GatewayUrl Query Override",
+        pattern=re.compile(r'''(?i)(URLSearchParams\\(.*\\)\\.get\\(['"]gatewayUrl['"]\\)|gatewayurlsource\\s*[:=]\\s*['"]?(?:query|querystring|query_string|external))'''),
+        severity=Severity.HIGH,
+        description="Gateway URL override via query parameters can enable token exfiltration",
+        file_extensions=[".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".json", ".yaml", ".yml", ".toml"],
+    ),
+    SmellPattern(
+        name="Clawdbot WebSocket Origin Not Validated",
+        pattern=re.compile(r'''(?i)(origin_check\\s*[:=]\\s*(?:false|off|disabled)|allowed_origins\\s*[:=]\\s*['"]?\\*)'''),
+        severity=Severity.HIGH,
+        description="WebSocket origin validation is disabled or allows any origin",
+        file_extensions=[".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".json", ".yaml", ".yml", ".toml", ".env"],
+    ),
 ]
 
 
