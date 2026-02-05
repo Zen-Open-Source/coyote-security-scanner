@@ -736,6 +736,11 @@ def main():
         metavar="FILE",
         help="Output results as HTML dashboard (to FILE or default reports dir)"
     )
+    parser.add_argument(
+        "--attack-paths",
+        action="store_true",
+        help="Analyze and display attack paths showing how findings chain into exploitable sequences",
+    )
 
     args = parser.parse_args()
 
@@ -854,6 +859,18 @@ def main():
             with open(args.html, "w", encoding="utf-8") as f:
                 f.write(html_content)
             tui.console.print(f"[dim]HTML report saved: {args.html}[/]")
+
+    # Attack path analysis if requested
+    if args.attack_paths and tui.scan_result and tui.scan_result.total_count > 0:
+        from .attack_paths import AttackPathAnalyzer
+        from .attack_paths_output import AttackPathReportGenerator
+        analyzer = AttackPathAnalyzer()
+        ap_result = analyzer.analyze(tui.scan_result.findings)
+        generator = AttackPathReportGenerator()
+        if ap_result.paths:
+            tui.console.print(generator.generate_text_report(ap_result))
+        else:
+            tui.console.print("[dim]No attack paths found — findings do not form exploitable chains.[/]")
 
     # Save baseline if requested
     if args.save_baseline and tui.scan_result:

@@ -49,7 +49,7 @@ Coyote is a dual-purpose security tool:
                                                ...
                                              .
 
-v1.2.0
+v1.3.0
 ```
 *Sniffing out secrets...*
 
@@ -66,6 +66,7 @@ v1.2.0
 - **Rich TUI**: Interactive terminal interface with live updates and keyboard controls
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
+- **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
 - **Clawdbot/Moltbot RCE Detection (CVE-2026-25253)**: Flags risky gateway URL overrides and missing WebSocket origin checks
 
 ### AI Agent Security (NEW in v0.9)
@@ -185,6 +186,7 @@ Options:
   --no-ignore            Disable suppression, report all findings
   --sarif FILE           Output results in SARIF format (use - for stdout)
   --sarif-output FILE    Write SARIF output to FILE
+  --attack-paths         Analyze and display exploitable attack paths
 ```
 
 ### Bash Watcher
@@ -215,6 +217,7 @@ Options:
   --ignore-file PATH     Use custom ignore file
   --no-ignore            Disable suppression
   --sarif FILE           Output results in SARIF format
+  --attack-paths         Analyze and display exploitable attack paths
   --help, -h             Show help
 ```
 
@@ -574,6 +577,108 @@ Coyote automatically filters out:
 If you're getting too many false positives, try increasing the threshold:
 ```bash
 python3 -m coyote --repo . --entropy --entropy-threshold 5.0
+```
+
+---
+
+## Attack Path Analysis
+
+Chain individual findings into exploitable attack paths that show **how** an attacker would combine them to escalate from initial access to full compromise. Each path gets a composite severity score (0-10) and blast radius description.
+
+### How It Works
+
+1. Findings are categorized (credential, code injection, network weakness, etc.)
+2. Predefined chain rules connect categories into directed edges (e.g., CREDENTIAL -> NETWORK_WEAKNESS)
+3. A depth-first search finds all paths up to 4 nodes deep
+4. Paths are deduplicated, scored, and sorted by severity
+
+### Usage
+
+```bash
+# Run a scan with attack path analysis
+python3 -m coyote scan --repo /path/to/repo --attack-paths
+
+# Combine with other flags
+python3 -m coyote scan --repo /path/to/repo --attack-paths --entropy --report
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--attack-paths` | Analyze and display attack paths after scanning |
+
+### Chain Rules
+
+Coyote recognizes 10 predefined exploit chains:
+
+| Source | Target | Escalation | Blast Radius |
+|--------|--------|------------|--------------|
+| Credential | Network Weakness | CRITICAL | Account compromise via credential theft + CORS/SSL bypass |
+| Credential | Sensitive File | CRITICAL | Environment compromise with credential leakage |
+| Debug Config | Code Injection | CRITICAL | RCE via debug mode + code injection |
+| Private Key | Infrastructure | CRITICAL | Lateral movement across internal network |
+| Auth Token | Network Weakness | HIGH | Session hijacking via token + network bypass |
+| Gateway Exploit | WebSocket Issue | CRITICAL | Full RCE via agent hijack (CVE-2026-25253) |
+| Code Injection | Network Weakness | HIGH | Data exfiltration via injected code |
+| Sensitive File | Infrastructure | HIGH | Network reconnaissance from config exposure |
+| Auth Token | Code Injection | CRITICAL | Privilege escalation via token + injection |
+| Credential | Code Injection | CRITICAL | Full compromise via authenticated code execution |
+
+### Scoring
+
+Each path receives a composite score from 0.0 to 10.0:
+
+```
+base        = min(sum of severity scores per node, 6.0)   # HIGH=4.0, MED=2.5, LOW=1.0
+chain_bonus = min(edge_count * 0.5, 2.0)
+escalation  = CRITICAL: 2.0, HIGH: 1.0, MEDIUM: 0.5
+composite   = min(base + chain_bonus + escalation, 10.0)
+```
+
+### Example Output
+
+```
+============================================================
+ATTACK PATH ANALYSIS
+============================================================
+
+PATH 1: Credential Theft -> API Abuse (CRITICAL)
+Blast Radius: Account compromise via credential theft + CORS/SSL bypass
+Composite Score: 8.5/10
+
+  [HIGH] AWS Access Key
+         config.py:42
+                                          │
+                                          ▼
+  [MED]  Permissive CORS
+         app.py:15
+
+  Attacker steals AWS Access Key and exploits Permissive CORS
+  to access resources from any origin
+
+------------------------------------------------------------
+============================================================
+1 attack paths found | Worst: CRITICAL | 2 findings chained
+============================================================
+```
+
+### Programmatic Usage
+
+```python
+from coyote.scanner import run_scan
+from coyote.attack_paths import AttackPathAnalyzer
+from coyote.attack_paths_output import AttackPathReportGenerator
+
+result = run_scan("/path/to/repo")
+analyzer = AttackPathAnalyzer()
+ap_result = analyzer.analyze(result.findings)
+
+generator = AttackPathReportGenerator()
+print(generator.generate_text_report(ap_result))   # ASCII art
+print(generator.generate_json_report(ap_result))    # JSON
+print(generator.generate_markdown_report(ap_result)) # Markdown
+panel = generator.generate_rich_panel(ap_result)    # Rich Panel for TUI
 ```
 
 ---
@@ -1450,6 +1555,8 @@ coyote-repo-scanner/
 │   ├── history.py         # Git history scanning
 │   ├── suppress.py        # Finding suppression
 │   ├── notifications.py   # Webhook notifications
+│   ├── attack_paths.py    # Attack path analysis engine
+│   ├── attack_paths_output.py # Attack path report generation
 │   └── agents/            # AI Agent Security module
 │       ├── __init__.py    # Agent security exports
 │       ├── analyzer.py    # Static analysis engine
