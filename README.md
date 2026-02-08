@@ -49,7 +49,7 @@ Coyote is a dual-purpose security tool:
                                                ...
                                              .
 
-v1.3.0
+v1.3.1
 ```
 *Sniffing out secrets...*
 
@@ -182,6 +182,8 @@ Options:
   --branch BRANCH        Branch to scan in history mode (default: HEAD)
   --entropy              Enable entropy-based secret detection
   --entropy-threshold N  Entropy threshold (default: 4.5)
+  --shield               Validate shield.md policy structure (Shield v0)
+  --require-shield       Fail if shield.md is missing at repo root (implies --shield)
   --ignore-file PATH     Use custom ignore file
   --no-ignore            Disable suppression, report all findings
   --sarif FILE           Output results in SARIF format (use - for stdout)
@@ -214,6 +216,8 @@ Options:
   --max-commits N        Max commits to scan (default: 100)
   --entropy              Enable entropy-based detection
   --entropy-threshold N  Entropy threshold (default: 4.5)
+  --shield               Validate shield.md policy structure (Shield v0)
+  --require-shield       Fail if shield.md is missing at repo root (implies --shield)
   --ignore-file PATH     Use custom ignore file
   --no-ignore            Disable suppression
   --sarif FILE           Output results in SARIF format

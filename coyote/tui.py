@@ -46,6 +46,8 @@ class CoyoteTUI:
         entropy_threshold: float = 4.5,
         ignore_file: str | None = None,
         no_ignore: bool = False,
+        enable_shield_scan: bool = False,
+        require_shield: bool = False,
     ):
         self.config = config or load_config()
         self.notification_config = notification_config or NotificationConfig()
@@ -53,6 +55,8 @@ class CoyoteTUI:
         self.entropy_threshold = entropy_threshold
         self.ignore_file = ignore_file
         self.no_ignore = no_ignore
+        self.enable_shield_scan = enable_shield_scan
+        self.require_shield = require_shield
         self.console = Console()
         self.pose = CoyotePose.IDLE
         self.quote_index = 0
@@ -276,6 +280,8 @@ class CoyoteTUI:
             entropy_threshold=self.entropy_threshold,
             ignore_file=self.ignore_file,
             no_ignore=self.no_ignore,
+            enable_shield_scan=self.enable_shield_scan,
+            require_shield=self.require_shield,
         )
 
         with self._lock:
@@ -699,6 +705,16 @@ def main():
         default=4.5,
         help="Entropy threshold for detection (default: 4.5, lower = more sensitive)"
     )
+    parser.add_argument(
+        "--shield",
+        action="store_true",
+        help="Validate shield.md policy structure against the canonical Shield v0 spec",
+    )
+    parser.add_argument(
+        "--require-shield",
+        action="store_true",
+        help="Fail when shield.md is missing at repo root (implies --shield)",
+    )
 
     # Suppression options
     parser.add_argument(
@@ -774,6 +790,8 @@ def main():
         entropy_threshold=args.entropy_threshold,
         ignore_file=args.ignore_file,
         no_ignore=args.no_ignore,
+        enable_shield_scan=(args.shield or args.require_shield),
+        require_shield=args.require_shield,
     )
 
     # When outputting machine-readable data to stdout, redirect TUI to stderr

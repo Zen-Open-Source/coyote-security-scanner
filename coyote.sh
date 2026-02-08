@@ -36,6 +36,8 @@ HISTORY_SCAN=false
 MAX_COMMITS=100
 ENTROPY_SCAN=false
 ENTROPY_THRESHOLD="4.5"
+SHIELD_SCAN=false
+REQUIRE_SHIELD=false
 IGNORE_FILE=""
 NO_IGNORE=false
 SARIF_OUTPUT=""
@@ -142,6 +144,10 @@ parse_args() {
                 ENTROPY_SCAN=true; shift ;;
             --entropy-threshold)
                 ENTROPY_THRESHOLD="$2"; shift 2 ;;
+            --shield)
+                SHIELD_SCAN=true; shift ;;
+            --require-shield)
+                SHIELD_SCAN=true; REQUIRE_SHIELD=true; shift ;;
             --ignore-file)
                 IGNORE_FILE="$2"; shift 2 ;;
             --no-ignore)
@@ -181,6 +187,8 @@ parse_args() {
                 echo "Entropy Detection:"
                 echo "  --entropy            Enable entropy-based secret detection"
                 echo "  --entropy-threshold  Entropy threshold (default: 4.5, lower = more sensitive)"
+                echo "  --shield             Validate shield.md policy structure"
+                echo "  --require-shield     Fail if shield.md is missing at repo root"
                 echo ""
                 echo "Suppression:"
                 echo "  --ignore-file FILE   Path to ignore file (default: .coyote-ignore)"
@@ -341,6 +349,12 @@ run_scan() {
         scan_args+=("--entropy")
         scan_args+=("--entropy-threshold" "$ENTROPY_THRESHOLD")
     fi
+    if [[ "$SHIELD_SCAN" == "true" ]]; then
+        scan_args+=("--shield")
+    fi
+    if [[ "$REQUIRE_SHIELD" == "true" ]]; then
+        scan_args+=("--require-shield")
+    fi
     if [[ -n "$IGNORE_FILE" ]]; then
         scan_args+=("--ignore-file" "$IGNORE_FILE")
     fi
@@ -392,6 +406,8 @@ print_main_help() {
     echo "    --interactive        Launch interactive TUI"
     echo "    --diff               Compare against baseline"
     echo "    --entropy            Enable entropy-based detection"
+    echo "    --shield             Validate shield.md policy structure"
+    echo "    --require-shield     Fail if shield.md is missing"
     echo "    --history            Scan git history for secrets"
     echo "    --sarif FILE         Output SARIF format"
     echo "    --help               Show full scan options"

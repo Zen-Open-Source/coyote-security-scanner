@@ -6,6 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 
+from . import __version__
 from .html_report import generate_html_report
 from .patterns import Severity
 from .sarif import generate_sarif, sarif_to_json
@@ -27,7 +28,7 @@ def _finding_to_dict(f) -> dict:
 def generate_json_report(result: ScanResult, commit_hash: str = "") -> str:
     """Generate a JSON-formatted scan report."""
     report = {
-        "scanner": "Coyote v1.3.0",
+        "scanner": f"Coyote v{__version__}",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "repo_path": result.repo_path,
         "commit": commit_hash,

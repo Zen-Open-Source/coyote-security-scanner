@@ -5,8 +5,11 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import yaml
 
 from .entropy import scan_content_for_entropy, generate_entropy_finding_id
 from .suppress import SuppressionConfig, load_suppression_config
@@ -141,6 +144,51 @@ DEFAULT_EXCLUDE_EXTENSIONS = [
 DEFAULT_MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
+SHIELD_CANONICAL_FILENAME = "shield.md"
+SHIELD_ALTERNATE_FILENAMES = ["SHIELD.md", "Shield.md"]
+SHIELD_EXPECTED_VERSION = "0.1"
+SHIELD_REQUIRED_FRONTMATTER_KEYS = ["name", "description", "version"]
+SHIELD_REQUIRED_SECTIONS = [
+    "Purpose",
+    "Scope",
+    "Threat categories",
+    "Enforcement states",
+    "Decision requirement",
+    "Default behavior",
+    "Match eligibility",
+    "Confidence threshold",
+    "Matching logic",
+    "recommendation_agent mini syntax v0",
+    "Hard stop rule",
+    "Required behavior",
+    "Context limits",
+    "Active threats (compressed)",
+]
+SHIELD_REQUIRED_ACTIONS = ["log", "require_approval", "block"]
+SHIELD_REQUIRED_CATEGORIES = [
+    "prompt",
+    "tool",
+    "mcp",
+    "memory",
+    "supply_chain",
+    "vulnerability",
+    "fraud",
+    "policy_bypass",
+    "anomaly",
+    "skill",
+    "other",
+]
+SHIELD_REQUIRED_DECISION_FIELDS = [
+    "action",
+    "scope",
+    "threat_id",
+    "fingerprint",
+    "matched_on",
+    "match_value",
+    "reason",
+]
+
+
 class Scanner:
     def __init__(
         self,
@@ -152,6 +200,8 @@ class Scanner:
         entropy_threshold: float = 4.5,
         ignore_file: str | None = None,
         no_ignore: bool = False,
+        enable_shield_scan: bool = False,
+        require_shield: bool = False,
     ):
         self.repo_path = os.path.abspath(repo_path)
         self.exclude_paths = exclude_paths or DEFAULT_EXCLUDE_PATHS
@@ -161,6 +211,8 @@ class Scanner:
         self.entropy_threshold = entropy_threshold
         self.ignore_file = ignore_file
         self.no_ignore = no_ignore
+        self.enable_shield_scan = enable_shield_scan
+        self.require_shield = require_shield
 
     def scan(self) -> ScanResult:
         """Run a full security scan on the repository."""
@@ -188,6 +240,7 @@ class Scanner:
         # Git-specific checks
         self._check_gitignore(result)
         self._check_large_files(result)
+        self._check_shield_policy(result)
 
         # Apply suppression rules
         if suppression_config and suppression_config.total_rules > 0:
@@ -425,6 +478,249 @@ class Scanner:
                 except OSError:
                     continue
 
+    def _check_shield_policy(self, result: ScanResult) -> None:
+        """Validate shield.md policy structure against canonical Shield v0."""
+        if not self.enable_shield_scan and not self.require_shield:
+            return
+
+        shield_rel_path = ""
+        canonical_path = os.path.join(self.repo_path, SHIELD_CANONICAL_FILENAME)
+        if os.path.isfile(canonical_path):
+            shield_rel_path = SHIELD_CANONICAL_FILENAME
+        else:
+            for alt_name in SHIELD_ALTERNATE_FILENAMES:
+                alt_path = os.path.join(self.repo_path, alt_name)
+                if os.path.isfile(alt_path):
+                    shield_rel_path = alt_name
+                    result.findings.append(PatternMatch(
+                        rule_name="shield.md Non-Canonical Filename",
+                        severity=Severity.LOW,
+                        file_path=alt_name,
+                        line_number=0,
+                        line_content="",
+                        description=f"Use canonical filename '{SHIELD_CANONICAL_FILENAME}' instead of '{alt_name}'",
+                        finding_id=generate_finding_id("shield.md Non-Canonical Filename", alt_name, 0, alt_name),
+                    ))
+                    break
+
+        if not shield_rel_path:
+            if self.require_shield:
+                result.findings.append(PatternMatch(
+                    rule_name="Missing shield.md",
+                    severity=Severity.MEDIUM,
+                    file_path=SHIELD_CANONICAL_FILENAME,
+                    line_number=0,
+                    line_content="",
+                    description=f"Expected '{SHIELD_CANONICAL_FILENAME}' at repository root",
+                    finding_id=generate_finding_id("Missing shield.md", SHIELD_CANONICAL_FILENAME, 0, ""),
+                ))
+            return
+
+        shield_path = os.path.join(self.repo_path, shield_rel_path)
+        try:
+            with open(shield_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except OSError:
+            result.findings.append(PatternMatch(
+                rule_name="shield.md Read Error",
+                severity=Severity.MEDIUM,
+                file_path=shield_rel_path,
+                line_number=0,
+                line_content="",
+                description="Unable to read shield.md file",
+                finding_id=generate_finding_id("shield.md Read Error", shield_rel_path, 0, ""),
+            ))
+            return
+
+        frontmatter_match = re.match(r"(?s)\A---\s*\n(.*?)\n---\s*(?:\n|$)", content)
+        body = content
+        frontmatter: dict[str, str] = {}
+
+        if not frontmatter_match:
+            result.findings.append(PatternMatch(
+                rule_name="shield.md Frontmatter Missing",
+                severity=Severity.MEDIUM,
+                file_path=shield_rel_path,
+                line_number=1,
+                line_content="",
+                description="shield.md should start with YAML frontmatter delimited by '---'",
+                finding_id=generate_finding_id("shield.md Frontmatter Missing", shield_rel_path, 1, ""),
+            ))
+        else:
+            body = content[frontmatter_match.end():]
+            frontmatter_text = frontmatter_match.group(1)
+            try:
+                parsed_frontmatter = yaml.safe_load(frontmatter_text) or {}
+                if isinstance(parsed_frontmatter, dict):
+                    frontmatter = parsed_frontmatter
+                else:
+                    result.findings.append(PatternMatch(
+                        rule_name="shield.md Frontmatter Invalid",
+                        severity=Severity.MEDIUM,
+                        file_path=shield_rel_path,
+                        line_number=1,
+                        line_content="",
+                        description="shield.md frontmatter must be a YAML mapping",
+                        finding_id=generate_finding_id("shield.md Frontmatter Invalid", shield_rel_path, 1, "not-mapping"),
+                    ))
+            except yaml.YAMLError:
+                result.findings.append(PatternMatch(
+                    rule_name="shield.md Frontmatter Invalid",
+                    severity=Severity.MEDIUM,
+                    file_path=shield_rel_path,
+                    line_number=1,
+                    line_content="",
+                    description="shield.md frontmatter YAML is invalid",
+                    finding_id=generate_finding_id("shield.md Frontmatter Invalid", shield_rel_path, 1, "yaml-parse-error"),
+                ))
+
+        if frontmatter:
+            missing_keys = [k for k in SHIELD_REQUIRED_FRONTMATTER_KEYS if k not in frontmatter]
+            if missing_keys:
+                result.findings.append(PatternMatch(
+                    rule_name="shield.md Frontmatter Missing Keys",
+                    severity=Severity.MEDIUM,
+                    file_path=shield_rel_path,
+                    line_number=1,
+                    line_content="",
+                    description=f"shield.md frontmatter missing keys: {', '.join(missing_keys)}",
+                    finding_id=generate_finding_id(
+                        "shield.md Frontmatter Missing Keys",
+                        shield_rel_path,
+                        1,
+                        ",".join(sorted(missing_keys)),
+                    ),
+                ))
+
+            name_value = str(frontmatter.get("name", "")).strip()
+            if name_value and name_value != SHIELD_CANONICAL_FILENAME:
+                result.findings.append(PatternMatch(
+                    rule_name="shield.md Frontmatter Name Mismatch",
+                    severity=Severity.LOW,
+                    file_path=shield_rel_path,
+                    line_number=1,
+                    line_content="",
+                    description=f"frontmatter name should be '{SHIELD_CANONICAL_FILENAME}', found '{name_value}'",
+                    finding_id=generate_finding_id("shield.md Frontmatter Name Mismatch", shield_rel_path, 1, name_value),
+                ))
+
+            version_value = str(frontmatter.get("version", "")).strip().lower().lstrip("v")
+            if version_value and version_value != SHIELD_EXPECTED_VERSION:
+                result.findings.append(PatternMatch(
+                    rule_name="shield.md Version Mismatch",
+                    severity=Severity.LOW,
+                    file_path=shield_rel_path,
+                    line_number=1,
+                    line_content="",
+                    description=f"Expected shield.md version '{SHIELD_EXPECTED_VERSION}', found '{frontmatter.get('version')}'",
+                    finding_id=generate_finding_id("shield.md Version Mismatch", shield_rel_path, 1, str(frontmatter.get("version"))),
+                ))
+
+        section_matches = list(re.finditer(r"(?m)^\s*##\s+(.+?)\s*$", body))
+        normalized_sections = {
+            self._normalize_heading_name(match.group(1)): match.group(1).strip()
+            for match in section_matches
+        }
+        missing_sections = [
+            section for section in SHIELD_REQUIRED_SECTIONS
+            if self._normalize_heading_name(section) not in normalized_sections
+        ]
+        if missing_sections:
+            result.findings.append(PatternMatch(
+                rule_name="shield.md Missing Sections",
+                severity=Severity.MEDIUM,
+                file_path=shield_rel_path,
+                line_number=0,
+                line_content="",
+                description=f"Missing required sections: {', '.join(missing_sections[:6])}{'...' if len(missing_sections) > 6 else ''}",
+                finding_id=generate_finding_id(
+                    "shield.md Missing Sections",
+                    shield_rel_path,
+                    0,
+                    ",".join(sorted(missing_sections)),
+                ),
+            ))
+
+        sections = self._extract_sections(body)
+
+        threat_categories_text = sections.get(self._normalize_heading_name("Threat categories"), "")
+        missing_categories = [
+            category for category in SHIELD_REQUIRED_CATEGORIES
+            if not re.search(rf"(?m)^\s*-\s*{re.escape(category)}\s*$", threat_categories_text)
+        ]
+        if missing_categories:
+            result.findings.append(PatternMatch(
+                rule_name="shield.md Missing Threat Categories",
+                severity=Severity.MEDIUM,
+                file_path=shield_rel_path,
+                line_number=0,
+                line_content="",
+                description=f"Threat categories section missing: {', '.join(missing_categories[:6])}{'...' if len(missing_categories) > 6 else ''}",
+                finding_id=generate_finding_id(
+                    "shield.md Missing Threat Categories",
+                    shield_rel_path,
+                    0,
+                    ",".join(sorted(missing_categories)),
+                ),
+            ))
+
+        enforcement_states_text = sections.get(self._normalize_heading_name("Enforcement states"), "")
+        missing_actions = [
+            action for action in SHIELD_REQUIRED_ACTIONS
+            if not re.search(rf"(?m)^\s*-\s*{re.escape(action)}\s*$", enforcement_states_text)
+        ]
+        if missing_actions:
+            result.findings.append(PatternMatch(
+                rule_name="shield.md Missing Enforcement Actions",
+                severity=Severity.MEDIUM,
+                file_path=shield_rel_path,
+                line_number=0,
+                line_content="",
+                description=f"Enforcement states section missing actions: {', '.join(missing_actions)}",
+                finding_id=generate_finding_id(
+                    "shield.md Missing Enforcement Actions",
+                    shield_rel_path,
+                    0,
+                    ",".join(sorted(missing_actions)),
+                ),
+            ))
+
+        decision_requirement_text = sections.get(self._normalize_heading_name("Decision requirement"), "")
+        missing_decision_fields = [
+            field for field in SHIELD_REQUIRED_DECISION_FIELDS
+            if not re.search(rf"(?im)^\s*{re.escape(field)}\s*:", decision_requirement_text)
+        ]
+        if missing_decision_fields:
+            result.findings.append(PatternMatch(
+                rule_name="shield.md Decision Fields Missing",
+                severity=Severity.MEDIUM,
+                file_path=shield_rel_path,
+                line_number=0,
+                line_content="",
+                description=f"Decision block missing fields: {', '.join(missing_decision_fields)}",
+                finding_id=generate_finding_id(
+                    "shield.md Decision Fields Missing",
+                    shield_rel_path,
+                    0,
+                    ",".join(sorted(missing_decision_fields)),
+                ),
+            ))
+
+    @staticmethod
+    def _normalize_heading_name(heading: str) -> str:
+        return re.sub(r"\s+", " ", heading.strip().lower())
+
+    def _extract_sections(self, markdown: str) -> dict[str, str]:
+        """Extract level-2 markdown sections keyed by normalized heading."""
+        sections: dict[str, str] = {}
+        matches = list(re.finditer(r"(?m)^\s*##\s+(.+?)\s*$", markdown))
+        for idx, match in enumerate(matches):
+            heading = self._normalize_heading_name(match.group(1))
+            start = match.end()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(markdown)
+            sections[heading] = markdown[start:end].strip()
+        return sections
+
 
 def run_scan(
     repo_path: str,
@@ -435,6 +731,8 @@ def run_scan(
     entropy_threshold: float = 4.5,
     ignore_file: str | None = None,
     no_ignore: bool = False,
+    enable_shield_scan: bool = False,
+    require_shield: bool = False,
 ) -> ScanResult:
     """Convenience function to run a scan and return results."""
     scanner = Scanner(
@@ -446,5 +744,7 @@ def run_scan(
         entropy_threshold=entropy_threshold,
         ignore_file=ignore_file,
         no_ignore=no_ignore,
+        enable_shield_scan=enable_shield_scan,
+        require_shield=require_shield,
     )
     return scanner.scan()
