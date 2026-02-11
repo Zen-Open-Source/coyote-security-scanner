@@ -11,7 +11,7 @@ import fnmatch
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -310,7 +310,7 @@ class BehaviorDriftDetector:
         """
         Establish a baseline of normal behavior for an agent.
         """
-        since = datetime.now(timezone.utc)
+        since = datetime.now(timezone.utc) - timedelta(hours=window_hours)
 
         actions = self.logger.get_actions(agent_id=agent_id, since=since)
 

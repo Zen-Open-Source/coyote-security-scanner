@@ -550,6 +550,53 @@ class CoyoteTUI:
 
         return result
 
+    def print_suppression_summary(self) -> None:
+        """Display suppression details for the most recent repository scan."""
+        if self.scan_result is None:
+            self.console.print("[dim]No scan results available for suppression summary.[/]")
+            return
+
+        if self.no_ignore:
+            self.console.print("[dim]Suppression disabled (--no-ignore); no findings were suppressed.[/]")
+            return
+
+        suppression_config = self.scan_result.suppression_config
+        if suppression_config is None or suppression_config.total_rules == 0:
+            self.console.print("[dim]No suppression rules loaded (.coyote-ignore missing or empty).[/]")
+            return
+
+        summary = Text()
+        summary.append("Rules loaded: ", style="bold")
+        summary.append(f"{suppression_config.total_rules}\n", style="white")
+        summary.append("Findings suppressed: ", style="bold")
+        summary.append(f"{self.scan_result.findings_suppressed}\n", style="white")
+        summary.append("Ignore file: ", style="bold")
+        summary.append(suppression_config.source_file or "(unknown)", style="dim")
+
+        parts = [summary]
+
+        if suppression_config.suppression_counts:
+            table = Table(show_header=True, header_style="bold", expand=True, show_lines=False)
+            table.add_column("Rule", ratio=1)
+            table.add_column("Count", width=6, justify="right")
+            for rule_key, count in sorted(
+                suppression_config.suppression_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            ):
+                table.add_row(rule_key, str(count))
+            parts.append(Text("\nMatched suppression rules:", style="bold"))
+            parts.append(table)
+        else:
+            parts.append(Text("\nNo findings were suppressed by the loaded rules.", style="dim"))
+
+        self.console.print(
+            Panel(
+                Group(*parts),
+                title="[bold white]Suppression Summary[/]",
+                border_style="white",
+            )
+        )
+
     def run_interactive(self) -> None:
         """Run the interactive TUI with live updates."""
         self.running = True
@@ -562,37 +609,38 @@ class CoyoteTUI:
         self.last_commit_time = commit_time
 
         try:
-            import tty
-            import termios
             import select
+            import termios
+            import tty
 
             fd = sys.stdin.fileno()
             old_settings = termios.tcgetattr(fd)
             tty.setcbreak(fd)
 
-            with Live(self.build_layout(), console=self.console, refresh_per_second=2, screen=True) as live:
-                while self.running:
-                    # Check for keypress (non-blocking)
-                    if select.select([sys.stdin], [], [], 0.5)[0]:
-                        key = sys.stdin.read(1).lower()
-                        if key == "q":
-                            self.running = False
-                            break
-                        elif key == "s":
-                            scan_thread = threading.Thread(target=self.run_scan, daemon=True)
-                            scan_thread.start()
-                        elif key == "r":
-                            saved = self.save_report()
-                            if saved:
-                                self.status_message = f"Report saved: {saved[0]}"
-                            else:
-                                self.status_message = "No scan results to report."
+            try:
+                with Live(self.build_layout(), console=self.console, refresh_per_second=2, screen=True) as live:
+                    while self.running:
+                        # Check for keypress (non-blocking)
+                        if select.select([sys.stdin], [], [], 0.5)[0]:
+                            key = sys.stdin.read(1).lower()
+                            if key == "q":
+                                self.running = False
+                                break
+                            elif key == "s":
+                                scan_thread = threading.Thread(target=self.run_scan, daemon=True)
+                                scan_thread.start()
+                            elif key == "r":
+                                saved = self.save_report()
+                                if saved:
+                                    self.status_message = f"Report saved: {saved[0]}"
+                                else:
+                                    self.status_message = "No scan results to report."
 
-                    live.update(self.build_layout())
+                        live.update(self.build_layout())
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-        except (ImportError, termios.error, AttributeError):
+        except (ImportError, AttributeError, OSError):
             # Fallback for environments without terminal control
             self.console.print("[yellow]Interactive mode not available. Running single scan...[/]")
             self.run_scan()
@@ -818,11 +866,15 @@ def main():
         if args.fail_on_new and result.total_count > 0:
             tui.console.print(f"[red]Failing due to {result.total_count} secrets in history.[/]")
             sys.exit(1)
+        if args.show_suppressed:
+            tui.console.print("[dim]Suppression details are not available for history scans.[/]")
         return
 
     # Handle diff mode
     if args.diff:
         diff = tui.run_diff_scan(args.baseline_path)
+        if args.show_suppressed:
+            tui.print_suppression_summary()
         if args.report:
             saved = tui.save_report()
             for path in saved:
@@ -844,10 +896,14 @@ def main():
     # Handle interactive mode
     if args.interactive:
         tui.run_interactive()
+        if args.show_suppressed:
+            tui.print_suppression_summary()
         return
 
     # Standard scan
     tui.run_single_scan()
+    if args.show_suppressed:
+        tui.print_suppression_summary()
 
     # Handle SARIF output if requested
     sarif_output_path = args.sarif_output or args.sarif
