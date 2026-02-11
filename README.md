@@ -1,10 +1,11 @@
 # Coyote
 
-**Security Scanner for Repositories and AI Agents**
+**Security Scanner for Repositories, AI Agents, and VPS Hosts**
 
-Coyote is a dual-purpose security tool:
+Coyote is a multi-purpose security tool:
 1. **Repository Scanning** - Detect secrets, credentials, and security issues in code
 2. **AI Agent Analysis** - Analyze OpenClaw/Moltbot agents for security risks before running them
+3. **VPS Security Auditing** - Audit host hardening posture (SSH, firewall, ports, brute-force protection)
 
 ```
                                     ..',;;;::::;;,,..
@@ -49,7 +50,7 @@ Coyote is a dual-purpose security tool:
                                                ...
                                              .
 
-v1.3.1
+v1.4.0
 ```
 *Sniffing out secrets...*
 
@@ -77,6 +78,13 @@ v1.3.1
 - **Runtime Guardrails**: Lightweight monitoring and first-use prompting
 - **Policy Generation**: Machine-readable security policies for runtime enforcement
 - **OpenClaw Security Checks**: CVE-2026-25253 detection and hardening analysis for OpenClaw installations
+
+### VPS Security Auditing
+- **SSH Hardening Checks**: Flags risky SSH settings like root login, password auth, weak ciphers, and high auth retries
+- **Firewall Posture Checks**: Validates active host firewall state across UFW/nftables/iptables
+- **Network Exposure Audit**: Detects public listening ports outside your allowlist
+- **Brute-force Protection Checks**: Verifies fail2ban installation and active service state
+- **Shared Reporting Pipeline**: Generates JSON/Markdown/SARIF/HTML outputs using the same report flow as repo scanning
 
 ## Installation
 
@@ -136,6 +144,22 @@ python3 -m coyote agent diff my-agent-id
 python3 -m coyote agent policy my-agent-id --strict --output policy.json
 ```
 
+### VPS Security Audit
+
+```bash
+# Audit local host with human-readable output
+python3 -m coyote vps audit --local
+
+# Save reports using config output formats
+python3 -m coyote vps audit --report
+
+# Export SARIF and HTML explicitly
+python3 -m coyote vps audit --sarif reports/vps.sarif --html reports/vps.html
+
+# Add intended public ports and fail CI on medium+ findings
+python3 -m coyote vps audit --allow-port 8080 --fail-on medium
+```
+
 ### Watch a Remote Repository
 
 ```bash
@@ -153,11 +177,12 @@ python3 -m coyote agent policy my-agent-id --strict --output policy.json
 
 ### Commands
 
-Coyote has two main commands:
+Coyote has three main commands:
 
 ```bash
 python3 -m coyote scan [OPTIONS]    # Repository scanning
 python3 -m coyote agent [COMMAND]   # AI agent analysis
+python3 -m coyote vps [COMMAND]     # VPS security auditing
 ```
 
 ### Repository Scanning Options
@@ -189,6 +214,26 @@ Options:
   --sarif FILE           Output results in SARIF format (use - for stdout)
   --sarif-output FILE    Write SARIF output to FILE
   --attack-paths         Analyze and display exploitable attack paths
+```
+
+### VPS Security Audit Options
+
+```bash
+python3 -m coyote vps audit [OPTIONS]
+
+Options:
+  --local                Audit the local host (currently the only target mode)
+  --allow-port PORT      Allowlist public listening port (repeatable, defaults: 22,80,443)
+  --ssh-config PATH      Path to sshd_config (default: /etc/ssh/sshd_config)
+  --json                 Print VPS audit results as JSON to stdout
+  --output FILE          Write VPS audit JSON report to FILE
+  --config FILE          Config file path for report defaults (default: config.yaml)
+  --report, -r           Save reports using configured output formats
+  --report-dir DIR       Override report output directory for --report
+  --sarif [FILE]         Output SARIF report (use - for stdout)
+  --sarif-output FILE    Write SARIF report to FILE
+  --html [FILE]          Output HTML dashboard (use - for stdout)
+  --fail-on LEVEL        Exit non-zero on findings at threshold (none|high|medium|low)
 ```
 
 ### Bash Watcher
