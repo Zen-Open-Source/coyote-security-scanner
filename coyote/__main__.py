@@ -4,6 +4,7 @@ Coyote - Security Scanner for Repositories and AI Agents
 Usage:
     python3 -m coyote scan [OPTIONS]        # Scan a repository
     python3 -m coyote agent [SUBCOMMAND]    # Analyze AI agents
+    python3 -m coyote vps [SUBCOMMAND]      # Audit VPS security posture
     python3 -m coyote --repo /path          # Legacy: same as 'scan --repo'
 """
 
@@ -29,6 +30,12 @@ def main():
             sys.argv = [sys.argv[0]] + sys.argv[2:]  # Remove 'agent' from argv
             from .agents.__main__ import main as agent_main
             sys.exit(agent_main())
+
+        elif subcommand == "vps":
+            # VPS security audit mode
+            sys.argv = [sys.argv[0]] + sys.argv[2:]  # Remove 'vps' from argv
+            from .vps import main as vps_main
+            sys.exit(vps_main())
 
         elif subcommand in ("--help", "-h"):
             print_help()
@@ -63,6 +70,7 @@ USAGE:
 COMMANDS:
     scan        Scan a repository for security issues (secrets, credentials, etc.)
     agent       Analyze OpenClaw/Moltbot AI agents for security risks
+    vps         Audit VPS hardening and exposure (SSH/firewall/ports/fail2ban)
 
 LEGACY MODE:
     For backward compatibility, you can also run without a subcommand:
@@ -77,6 +85,9 @@ EXAMPLES:
     python3 -m coyote agent analyze ./my-agent.json
     python3 -m coyote agent diff my-agent-id
     python3 -m coyote agent policy my-agent-id --strict
+
+    # Audit local VPS security posture
+    python3 -m coyote vps audit --local
 
     # Legacy (equivalent to 'scan')
     python3 -m coyote --repo /path/to/repo --diff --fail-on-new

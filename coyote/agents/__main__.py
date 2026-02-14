@@ -1,10 +1,10 @@
 """
-Moltsec CLI - Agent Security Analysis Tool
+Coyote Agent CLI - Agent Security Analysis Tool
 
 Usage:
-    python -m moltsec analyze <agent_path>
-    python -m moltsec diff <agent_id>
-    python -m moltsec policy <agent_id> [--strict|--permissive]
+    python3 -m coyote agent analyze <agent_path>
+    python3 -m coyote agent diff <agent_id>
+    python3 -m coyote agent policy <agent_id> [--strict|--permissive]
 """
 
 from __future__ import annotations
@@ -187,21 +187,21 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Moltsec - Agent Security Analysis Tool",
+        description="Coyote Agent Security - Analysis Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   Analyze an agent:
-    python -m moltsec analyze ./agents/my-agent.json
+    python3 -m coyote agent analyze ./agents/my-agent.json
 
   Show permission diff:
-    python -m moltsec diff my-agent-id
+    python3 -m coyote agent diff my-agent-id
 
   Generate policy file:
-    python -m moltsec policy my-agent-id --output policy.json --strict
+    python3 -m coyote agent policy my-agent-id --output policy.json --strict
 
   List tracked agents:
-    python -m moltsec list
+    python3 -m coyote agent list
 """,
     )
 
