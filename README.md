@@ -49,7 +49,7 @@ Coyote is a dual-purpose security tool:
                                                ...
                                              .
 
-v1.3.1
+v1.5.0
 ```
 *Sniffing out secrets...*
 
@@ -67,7 +67,7 @@ v1.3.1
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
-- **Clawdbot/Moltbot RCE Detection (CVE-2026-25253)**: Flags risky gateway URL overrides and missing WebSocket origin checks
+- **OpenClaw CVE Detection**: Detects CVE-2026-25253, CVE-2026-24763, CVE-2026-25157, CVE-2026-25475, and CVE-2026-25593
 
 ### AI Agent Security (NEW in v0.9)
 - **Agent Intake Analysis**: Static analysis of agent configs, prompts, and tools
@@ -76,7 +76,7 @@ v1.3.1
 - **Risk Assessment**: Automatic risk level classification (LOW to CRITICAL)
 - **Runtime Guardrails**: Lightweight monitoring and first-use prompting
 - **Policy Generation**: Machine-readable security policies for runtime enforcement
-- **OpenClaw Security Checks**: CVE-2026-25253 detection and hardening analysis for OpenClaw installations
+- **OpenClaw Security Checks**: Five CVE checks plus hardening analysis for OpenClaw installations
 
 ## Installation
 
@@ -1446,17 +1446,20 @@ NEW CAPABILITIES (3):
 
 ### OpenClaw Security Checks
 
-Coyote includes targeted security checks for [OpenClaw](https://openclaw.dev) installations, including detection of **CVE-2026-25253** (WebSocket hijacking / token exfiltration leading to remote code execution).
+Coyote includes targeted security checks for [OpenClaw](https://openclaw.dev) installations.
+It scans for five OpenClaw CVEs plus additional hardening misconfigurations.
 
-#### CVE-2026-25253 Overview
+Detailed CVE notes are in [`OpenClawCVEs.md`](OpenClawCVEs.md).
 
-| Field | Value |
-|-------|-------|
-| Severity | HIGH (CVSS 8.8) |
-| Fixed in | OpenClaw 2026.1.29 |
-| Attack | Crafted link causes Control UI to send gateway token to attacker-controlled WebSocket server. Attacker connects to victim's gateway, disables sandbox, escapes container, and executes arbitrary commands. |
+#### OpenClaw CVEs Covered
 
-A browser visiting a malicious page acts as a bridge — even if the gateway is bound to `127.0.0.1`, the attacker can reach it through the victim's browser.
+| CVE | Summary | Fixed In |
+|-----|---------|----------|
+| CVE-2026-25253 | One-click token exfiltration via `gatewayUrl`, can lead to gateway compromise | 2026.1.29 |
+| CVE-2026-24763 | Command injection via Docker PATH handling | 2026.1.29 |
+| CVE-2026-25157 | SSH command injection in remote mode path/target handling | 2026.1.29 |
+| CVE-2026-25475 | MEDIA path handling allows arbitrary file reads | 2026.1.30 |
+| CVE-2026-25593 | Unauthenticated local WebSocket `config.apply` path to command injection | 2026.1.20 |
 
 #### Usage
 
@@ -1481,13 +1484,17 @@ python3 -m coyote agent secure-openclaw /path/to/openclaw/ --format markdown
 
 | Check ID | Name | What It Detects |
 |----------|------|-----------------|
-| CVE-2026-25253 | WebSocket Hijacking / Token Exfiltration | Outdated version, unvalidated `gatewayUrl`, disabled sandbox, gateway exec host, high-risk operator scopes |
+| CVE-2026-25253 | `gatewayUrl` Token Exfiltration | Outdated version and risky token exfiltration preconditions (`gatewayUrl` source, unsafe runtime privileges) |
+| CVE-2026-24763 | Docker PATH Command Injection | Outdated version and risky Docker PATH command interpolation/input-source patterns |
+| CVE-2026-25157 | Remote SSH Path/Target Injection | Outdated version and unsafe remote-mode SSH path/target command composition |
+| CVE-2026-25475 | MEDIA Path Arbitrary File Read | Outdated version and unsafe MEDIA path handling (traversal/absolute path risk) |
+| CVE-2026-25593 | Unauthenticated WebSocket `config.apply` Injection | Outdated version and unauthenticated local WebSocket `config.apply` risk patterns |
 | OPENCLAW-TOKEN-EXPOSURE | Gateway Token in Plaintext | Gateway tokens stored in plaintext config files |
 | OPENCLAW-CONTAINER-ESCAPE | Container Escape Risk | `tools.exec.host` set to `gateway` instead of container-scoped |
 | OPENCLAW-APPROVAL-BYPASS | Exec Approvals Disabled | `exec.approvals` set to `off` |
 | OPENCLAW-OPERATOR-SCOPES | High-Risk Operator Scopes | `operator.admin` or `operator.approvals` scopes enabled |
 | OPENCLAW-WS-ORIGIN | WebSocket Origin Validation | Missing or wildcard (`*`) origin checking |
-| OPENCLAW-LOOPBACK | Loopback Binding (False Security) | Warns that `127.0.0.1` binding does not mitigate CVE-2026-25253 |
+| OPENCLAW-LOOPBACK | Loopback Binding (False Security) | Warns that loopback binding alone is not a complete browser-bridge mitigation |
 
 #### Example Output
 
@@ -1496,20 +1503,22 @@ python3 -m coyote agent secure-openclaw /path/to/openclaw/ --format markdown
 OPENCLAW SECURITY ASSESSMENT
 ============================================================
 Target: /path/to/openclaw
-Version: 2026.1.28 (OUTDATED - update to >= 2026.1.29)
+Version: 2026.1.28 (OUTDATED - update to >= 2026.1.30)
 
 CHECKS:
-  VULNERABLE  CVE-2026-25253: WebSocket Hijacking / Token Exfiltration
-              Gateway URL accepted from query string without validation.
-              Attacker can steal token via crafted link, leading to full RCE.
-              Fix: Update to OpenClaw >= 2026.1.29
+  VULNERABLE  CVE-2026-25253: gatewayUrl Token Exfiltration
+              OpenClaw version 2026.1.28 is below fix version 2026.1.29.
 
-  WARNING     Gateway token stored in plaintext config
-  WARNING     Operator scopes include admin privileges
-  PASS        Container sandbox enabled (tools.exec.host: docker)
-  PASS        Exec approvals are enabled
+  VULNERABLE  CVE-2026-24763: Docker PATH Command Injection
+              OpenClaw version 2026.1.28 is below fix version 2026.1.29.
 
-Summary: 1 VULNERABLE | 2 WARNING | 2 PASS
+  VULNERABLE  CVE-2026-25157: Remote SSH Path/Target Injection
+              OpenClaw version 2026.1.28 is below fix version 2026.1.29.
+
+  VULNERABLE  CVE-2026-25475: MEDIA Path Arbitrary File Read
+              OpenClaw version 2026.1.28 is below fix version 2026.1.30.
+
+Summary: 4 VULNERABLE | 7 PASS
 ============================================================
 ```
 
@@ -1567,7 +1576,7 @@ coyote-repo-scanner/
 │       ├── models.py      # Data models (Capability, Manifest, etc.)
 │       ├── tracker.py     # Permission tracking and diffing
 │       ├── runtime.py     # Runtime guardrails
-│       ├── openclaw.py    # OpenClaw security checks (CVE-2026-25253)
+│       ├── openclaw.py    # OpenClaw CVE + hardening security checks
 │       ├── output.py      # Safety summary generation
 │       └── examples/      # Example agent configs
 ├── config.example.yaml    # Example configuration

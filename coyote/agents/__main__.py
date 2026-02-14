@@ -273,7 +273,7 @@ Examples:
     # secure-openclaw command
     openclaw_parser = subparsers.add_parser(
         "secure-openclaw",
-        help="Run OpenClaw-specific security checks (CVE-2026-25253 and hardening)",
+        help="Run OpenClaw CVE checks and hardening analysis",
     )
     openclaw_parser.add_argument("path", help="Path to OpenClaw installation, config directory, or config file")
     openclaw_parser.add_argument(

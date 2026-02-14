@@ -456,11 +456,19 @@ class OpenClawReportGenerator:
         lines.append(f"Target: {report.agent_path}")
 
         if report.openclaw_version:
-            from .openclaw import _parse_version, _CVE_FIX_VERSION
+            from .openclaw import (
+                _LATEST_TRACKED_FIX_VERSION,
+                _format_version,
+                _parse_version,
+            )
             parsed = _parse_version(report.openclaw_version)
             version_note = ""
-            if parsed and parsed < _CVE_FIX_VERSION:
-                version_note = " (OUTDATED - update to >= 2026.1.29)"
+            if parsed and parsed < _LATEST_TRACKED_FIX_VERSION:
+                version_note = (
+                    " (OUTDATED - update to >= "
+                    + _format_version(_LATEST_TRACKED_FIX_VERSION)
+                    + ")"
+                )
             elif parsed:
                 version_note = " (up to date)"
             lines.append(f"Version: {report.openclaw_version}{version_note}")
