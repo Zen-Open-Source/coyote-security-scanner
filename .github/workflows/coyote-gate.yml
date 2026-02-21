@@ -1,0 +1,46 @@
+name: Coyote Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Coyote gate
+        run: |
+          python -m coyote gate \
+            --repo . \
+            --fail-on high \
+            --fail-on-new high \
+            --sarif coyote-results.sarif \
+            --output coyote-gate-summary.json
+
+      - name: Upload gate summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coyote-gate-summary
+          path: coyote-gate-summary.json
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: coyote-results.sarif

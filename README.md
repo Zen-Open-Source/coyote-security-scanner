@@ -153,10 +153,11 @@ python3 -m coyote agent policy my-agent-id --strict --output policy.json
 
 ### Commands
 
-Coyote has two main commands:
+Coyote has three main commands:
 
 ```bash
 python3 -m coyote scan [OPTIONS]    # Repository scanning
+python3 -m coyote gate [OPTIONS]    # CI gate (scan + baseline diff + fail thresholds)
 python3 -m coyote agent [COMMAND]   # AI agent analysis
 ```
 
@@ -189,6 +190,23 @@ Options:
   --sarif FILE           Output results in SARIF format (use - for stdout)
   --sarif-output FILE    Write SARIF output to FILE
   --attack-paths         Analyze and display exploitable attack paths
+```
+
+### CI Gate Options
+
+```bash
+python3 -m coyote gate [OPTIONS]
+
+Options:
+  --repo PATH            Path to repository to scan (default: .)
+  --baseline-path FILE   Baseline file path (default: .coyote-baseline.json)
+  --require-baseline     Fail if baseline file does not exist
+  --save-baseline        Save current findings as baseline after evaluation
+  --fail-on LEVEL        Absolute fail threshold without baseline (none|high|medium|low)
+  --fail-on-new LEVEL    New-finding fail threshold with baseline diff (none|high|medium|low)
+  --fail-on-errors       Fail if scan runtime errors occur
+  --sarif FILE           Output SARIF to FILE (use - for stdout)
+  --output FILE          Write gate summary JSON to FILE
 ```
 
 ### Bash Watcher
@@ -934,8 +952,8 @@ jobs:
       - name: Install Coyote
         run: pip install -r requirements.txt
 
-      - name: Run Coyote scan
-        run: python3 -m coyote --repo . --sarif results.sarif
+      - name: Run Coyote gate
+        run: python3 -m coyote gate --repo . --fail-on high --sarif results.sarif
 
       - name: Upload SARIF to GitHub
         uses: github/codeql-action/upload-sarif@v3
