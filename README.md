@@ -68,6 +68,7 @@ v1.5.0
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
 - **OpenClaw CVE Detection**: Detects CVE-2026-25253, CVE-2026-24763, CVE-2026-25157, CVE-2026-25475, and CVE-2026-25593
+- **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
 
 ### AI Agent Security (NEW in v0.9)
 - **Agent Intake Analysis**: Static analysis of agent configs, prompts, and tools
@@ -77,6 +78,7 @@ v1.5.0
 - **Runtime Guardrails**: Lightweight monitoring and first-use prompting
 - **Policy Generation**: Machine-readable security policies for runtime enforcement
 - **OpenClaw Security Checks**: Five CVE checks plus hardening analysis for OpenClaw installations
+- **Langflow Security Checks**: Two high-impact CVE checks for exposed API/code-execution risk patterns
 
 ## Installation
 
@@ -134,6 +136,9 @@ python3 -m coyote agent diff my-agent-id
 
 # Generate a security policy
 python3 -m coyote agent policy my-agent-id --strict --output policy.json
+
+# Scan a Langflow installation for known CVEs
+python3 -m coyote agent secure-langflow /path/to/langflow
 ```
 
 ### Watch a Remote Repository
@@ -1550,6 +1555,39 @@ Summary: 4 VULNERABLE | 7 PASS
 
 ---
 
+### Langflow Security Checks
+
+Coyote includes targeted security checks for Langflow installations.
+It currently detects:
+
+- **CVE-2025-3248**: unauthenticated code validation endpoint risk (version-based)
+- **CVE-2025-34291**: CORS/cookie exploit-chain preconditions with affected versions
+
+#### Usage
+
+```bash
+# Scan a Langflow installation directory
+python3 -m coyote agent secure-langflow /path/to/langflow/
+
+# Scan a specific config file
+python3 -m coyote agent secure-langflow /path/to/langflow/.env
+
+# Show remediation steps for each finding
+python3 -m coyote agent secure-langflow /path/to/langflow/ --fix
+
+# Output as JSON
+python3 -m coyote agent secure-langflow /path/to/langflow/ --format json
+```
+
+#### Checks Performed
+
+| Check ID | Name | What It Detects |
+|----------|------|-----------------|
+| CVE-2025-3248 | Unauthenticated Code Validation RCE | Vulnerable `langflow` (<1.3.0) / `langflow-base` (<0.3.0) versions |
+| CVE-2025-34291 | CORS Token Hijack Chain | Affected versions (<=1.6.9) plus risky CORS/cookie preconditions |
+
+---
+
 ### Capability Categories
 
 | Category | Description |
@@ -1595,6 +1633,7 @@ coyote-repo-scanner/
 │       ├── tracker.py     # Permission tracking and diffing
 │       ├── runtime.py     # Runtime guardrails
 │       ├── openclaw.py    # OpenClaw CVE + hardening security checks
+│       ├── langflow.py    # Langflow CVE security checks
 │       ├── output.py      # Safety summary generation
 │       └── examples/      # Example agent configs
 ├── config.example.yaml    # Example configuration

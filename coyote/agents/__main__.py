@@ -5,6 +5,8 @@ Usage:
     python3 -m coyote agent analyze <agent_path>
     python3 -m coyote agent diff <agent_id>
     python3 -m coyote agent policy <agent_id> [--strict|--permissive]
+    python3 -m coyote agent secure-openclaw <path>
+    python3 -m coyote agent secure-langflow <path>
 """
 
 from __future__ import annotations
@@ -21,11 +23,13 @@ from . import (
 )
 from .output import (
     DiffReportGenerator,
+    LangflowReportGenerator,
     OpenClawReportGenerator,
     SafetySummaryGenerator,
     generate_intake_warning,
     generate_update_warning,
 )
+from .langflow import LangflowSecurityAnalyzer
 from .openclaw import OpenClawSecurityAnalyzer
 
 
@@ -161,6 +165,33 @@ def cmd_secure_openclaw(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_secure_langflow(args: argparse.Namespace) -> int:
+    """Run Langflow-specific security checks."""
+    path = Path(args.path)
+
+    if not path.exists():
+        print(f"Error: Path not found: {path}", file=sys.stderr)
+        return 1
+
+    try:
+        analyzer = LangflowSecurityAnalyzer()
+        report = analyzer.analyze(str(path))
+    except Exception as e:
+        print(f"Error analyzing Langflow installation: {e}", file=sys.stderr)
+        return 1
+
+    generator = LangflowReportGenerator()
+
+    if args.format == "text":
+        print(generator.generate_text_report(report, show_fix=args.fix))
+    elif args.format == "json":
+        print(generator.generate_json_report(report))
+    elif args.format == "markdown":
+        print(generator.generate_markdown_report(report, show_fix=args.fix))
+
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     """List tracked agents."""
     from .tracker import ManifestStore
@@ -199,6 +230,12 @@ Examples:
 
   Generate policy file:
     python3 -m coyote agent policy my-agent-id --output policy.json --strict
+
+  Scan OpenClaw:
+    python3 -m coyote agent secure-openclaw /path/to/openclaw
+
+  Scan Langflow:
+    python3 -m coyote agent secure-langflow /path/to/langflow
 
   List tracked agents:
     python3 -m coyote agent list
@@ -288,6 +325,25 @@ Examples:
         help="Show detailed remediation steps for each finding",
     )
     openclaw_parser.set_defaults(func=cmd_secure_openclaw)
+
+    # secure-langflow command
+    langflow_parser = subparsers.add_parser(
+        "secure-langflow",
+        help="Run Langflow CVE checks and hardening analysis",
+    )
+    langflow_parser.add_argument("path", help="Path to Langflow installation, config directory, or config file")
+    langflow_parser.add_argument(
+        "--format", "-f",
+        choices=["text", "json", "markdown"],
+        default="text",
+        help="Output format (default: text)",
+    )
+    langflow_parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Show detailed remediation steps for each finding",
+    )
+    langflow_parser.set_defaults(func=cmd_secure_langflow)
 
     # list command
     list_parser = subparsers.add_parser(

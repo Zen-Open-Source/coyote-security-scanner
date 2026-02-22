@@ -44,8 +44,10 @@ from .models import (
 from .tracker import ManifestStore, PermissionDiffer, PermissionTracker, PolicyGenerator
 from .runtime import ActionLogger, BehaviorDriftDetector, RuntimeGuard
 from .openclaw import OpenClawSecurityAnalyzer, OpenClawSecurityCheck, OpenClawSecurityReport
+from .langflow import LangflowSecurityAnalyzer, LangflowSecurityCheck, LangflowSecurityReport
 from .output import (
     DiffReportGenerator,
+    LangflowReportGenerator,
     OpenClawReportGenerator,
     SafetySummaryGenerator,
     generate_intake_warning,
@@ -110,8 +112,13 @@ __all__ = [
     "OpenClawSecurityAnalyzer",
     "OpenClawSecurityCheck",
     "OpenClawSecurityReport",
+    # Langflow
+    "LangflowSecurityAnalyzer",
+    "LangflowSecurityCheck",
+    "LangflowSecurityReport",
     # Output
     "DiffReportGenerator",
+    "LangflowReportGenerator",
     "OpenClawReportGenerator",
     "SafetySummaryGenerator",
     "generate_intake_warning",
