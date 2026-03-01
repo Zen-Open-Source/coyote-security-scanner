@@ -67,6 +67,7 @@ v1.5.0
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
+- **Dependency Vulnerability Scanning**: Scan lockfiles/manifests and flag known vulnerable package versions via OSV or local advisory feeds
 - **OpenClaw CVE Detection**: Detects CVE-2026-25253, CVE-2026-24763, CVE-2026-25157, CVE-2026-25475, and CVE-2026-25593
 - **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
 
@@ -124,6 +125,19 @@ python3 -m coyote scan --repo /path/to/your/repo --interactive
 - `R` - Save report
 - `Q` - Quit
 
+### Dependency Vulnerability Scanning
+
+```bash
+# Scan dependency manifests/lockfiles for known vulnerabilities
+python3 -m coyote deps --repo /path/to/your/repo
+
+# Fail CI step when HIGH dependency vulnerabilities are present
+python3 -m coyote deps --repo /path/to/your/repo --fail-on high
+
+# Offline mode with local advisory JSON file
+python3 -m coyote deps --repo /path/to/your/repo --advisory-db ./advisories.json
+```
+
 ### AI Agent Security Analysis
 
 ```bash
@@ -158,12 +172,14 @@ python3 -m coyote agent secure-langflow /path/to/langflow
 
 ### Commands
 
-Coyote has three main commands:
+Coyote has five main commands:
 
 ```bash
 python3 -m coyote scan [OPTIONS]    # Repository scanning
 python3 -m coyote gate [OPTIONS]    # CI gate (scan + baseline diff + fail thresholds)
+python3 -m coyote deps [OPTIONS]    # Dependency vulnerability scanning
 python3 -m coyote agent [COMMAND]   # AI agent analysis
+python3 -m coyote vps [COMMAND]     # VPS hardening audit
 ```
 
 ### Repository Scanning Options
@@ -207,11 +223,36 @@ Options:
   --baseline-path FILE   Baseline file path (default: .coyote-baseline.json)
   --require-baseline     Fail if baseline file does not exist
   --save-baseline        Save current findings as baseline after evaluation
-  --fail-on LEVEL        Absolute fail threshold without baseline (none|high|medium|low)
-  --fail-on-new LEVEL    New-finding fail threshold with baseline diff (none|high|medium|low)
+  --fail-on LEVEL        Absolute fail threshold without baseline (none|critical|high|medium|low)
+  --fail-on-new LEVEL    New-finding fail threshold with baseline diff (none|critical|high|medium|low)
   --fail-on-errors       Fail if scan runtime errors occur
+  --deps                 Enable dependency vulnerability scanning
+  --deps-advisory-db     Use local advisory JSON file instead of OSV API
+  --deps-timeout N       OSV request timeout seconds (default: 20)
+  --deps-batch-size N    OSV batch query size (default: 100)
+  --deps-skip-dev        Skip development dependencies
   --sarif FILE           Output SARIF to FILE (use - for stdout)
   --output FILE          Write gate summary JSON to FILE
+```
+
+### Dependency Scanning Options
+
+```bash
+python3 -m coyote deps [OPTIONS]
+
+Options:
+  --repo PATH            Path to repository to scan (default: .)
+  --format FORMAT        Output format (text|json|markdown)
+  --advisory-db FILE     Local advisory JSON file (offline mode)
+  --timeout N            OSV API timeout in seconds (default: 20)
+  --batch-size N         OSV batch query size (default: 100)
+  --skip-dev             Skip development-only dependencies
+  --ignore-file PATH     Use custom ignore file
+  --no-ignore            Disable suppression
+  --fail-on LEVEL        Fail threshold (none|critical|high|medium|low)
+  --fail-on-errors       Fail when advisory lookup/parsing errors occur
+  --report               Save JSON/Markdown/SARIF reports
+  --report-dir PATH      Report output directory (default: ./reports)
 ```
 
 ### Bash Watcher
@@ -608,6 +649,69 @@ python3 -m coyote --repo . --entropy --entropy-threshold 5.0
 
 ---
 
+## Dependency Vulnerability Scanning
+
+Scan dependency manifests and lockfiles for known vulnerable package versions.
+
+Supported files:
+- `requirements*.txt`
+- `poetry.lock`
+- `package-lock.json`
+- `pnpm-lock.yaml` / `pnpm-lock.yml`
+- `go.mod`
+- `Cargo.lock`
+
+### How It Works
+
+1. Coyote discovers supported dependency manifests in the repo.
+2. Dependencies are normalized into `ecosystem/name/version` coordinates.
+3. Vulnerability advisories are matched via:
+   - OSV API (default)
+   - Local advisory JSON file (`--advisory-db`) for offline/air-gapped use
+4. Findings are emitted with stable IDs and flow through the same baseline/gate/SARIF pipeline.
+
+### Usage
+
+```bash
+# Default: query OSV
+python3 -m coyote deps --repo /path/to/repo
+
+# Offline mode with local advisory feed
+python3 -m coyote deps --repo /path/to/repo --advisory-db ./advisories.json
+
+# CI-friendly exit behavior
+python3 -m coyote deps --repo /path/to/repo --fail-on high --fail-on-errors
+```
+
+### Local Advisory JSON Format
+
+```json
+{
+  "advisories": [
+    {
+      "ecosystem": "pypi",
+      "name": "urllib3",
+      "version": "1.25.0",
+      "id": "CVE-2026-12345",
+      "summary": "Example advisory summary",
+      "severity": "HIGH",
+      "fixed_versions": ["1.26.19"]
+    }
+  ]
+}
+```
+
+### CI/CD Integration
+
+```yaml
+# GitHub Actions - fail on high repo or dependency findings
+- name: Coyote Gate
+  run: |
+    python3 -m coyote gate --repo . --deps --fail-on high --fail-on-new high
+```
+
+---
+
 ## Attack Path Analysis
 
 Chain individual findings into exploitable attack paths that show **how** an attacker would combine them to escalate from initial access to full compromise. Each path gets a composite severity score (0-10) and blast radius description.
@@ -637,7 +741,7 @@ python3 -m coyote scan --repo /path/to/repo --attack-paths --entropy --report
 
 ### Chain Rules
 
-Coyote recognizes 10 predefined exploit chains:
+Coyote recognizes 11 predefined exploit chains:
 
 | Source | Target | Escalation | Blast Radius |
 |--------|--------|------------|--------------|
@@ -648,6 +752,7 @@ Coyote recognizes 10 predefined exploit chains:
 | Auth Token | Network Weakness | HIGH | Session hijacking via token + network bypass |
 | Gateway Exploit | WebSocket Issue | CRITICAL | Full RCE via agent hijack (CVE-2026-25253) |
 | Code Injection | Network Weakness | HIGH | Data exfiltration via injected code |
+| Supply Chain | Code Injection | CRITICAL | RCE via vulnerable dependency plus application injection sink |
 | Sensitive File | Infrastructure | HIGH | Network reconnaissance from config exposure |
 | Auth Token | Code Injection | CRITICAL | Privilege escalation via token + injection |
 | Credential | Code Injection | CRITICAL | Full compromise via authenticated code execution |
@@ -1621,6 +1726,7 @@ coyote-repo-scanner/
 │   ├── sarif.py           # SARIF output format
 │   ├── baseline.py        # Scan diffing/baseline
 │   ├── entropy.py         # Entropy-based detection
+│   ├── deps.py            # Dependency vulnerability scanning
 │   ├── history.py         # Git history scanning
 │   ├── suppress.py        # Finding suppression
 │   ├── notifications.py   # Webhook notifications

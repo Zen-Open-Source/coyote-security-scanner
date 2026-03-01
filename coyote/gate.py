@@ -23,17 +23,21 @@ from .baseline import (
     save_baseline,
 )
 from .config import load_config
+from .deps import run_dependency_scan
 from .sarif import generate_sarif, sarif_to_json
 from .scanner import ScanResult, run_scan
 
 
-FAIL_THRESHOLDS = ("none", "high", "medium", "low")
+FAIL_THRESHOLDS = ("none", "critical", "high", "medium", "low")
 
 
 def _threshold_triggered(high: int, medium: int, low: int, threshold: str) -> bool:
     """Return True when counts breach the selected threshold."""
     if threshold == "none":
         return False
+    if threshold == "critical":
+        # Coyote severity levels are HIGH/MEDIUM/LOW. Critical-class issues map to HIGH.
+        return high > 0
     if threshold == "high":
         return high > 0
     if threshold == "medium":
@@ -202,6 +206,16 @@ def _write_summary_output(path: str, payload: dict[str, object]) -> None:
         json.dump(payload, handle, indent=2)
 
 
+def _merge_scan_results(primary: ScanResult, secondary: ScanResult) -> ScanResult:
+    """Merge a secondary ScanResult into the primary result."""
+    primary.findings.extend(secondary.findings)
+    primary.files_scanned += secondary.files_scanned
+    primary.files_skipped += secondary.files_skipped
+    primary.errors.extend(secondary.errors)
+    primary.findings_suppressed += secondary.findings_suppressed
+    return primary
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Coyote CI gate (scan + baseline diff + fail thresholds)",
@@ -258,6 +272,33 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=4.5,
         help="Entropy threshold (default: 4.5).",
+    )
+    parser.add_argument(
+        "--deps",
+        action="store_true",
+        help="Enable dependency vulnerability scanning (requirements/lockfiles).",
+    )
+    parser.add_argument(
+        "--deps-advisory-db",
+        metavar="FILE",
+        help="Use local advisory JSON file instead of querying OSV API.",
+    )
+    parser.add_argument(
+        "--deps-timeout",
+        type=int,
+        default=20,
+        help="OSV API timeout in seconds for dependency scan (default: 20).",
+    )
+    parser.add_argument(
+        "--deps-batch-size",
+        type=int,
+        default=100,
+        help="OSV batch size for dependency scan (default: 100).",
+    )
+    parser.add_argument(
+        "--deps-skip-dev",
+        action="store_true",
+        help="Skip development dependencies when lockfiles mark them.",
     )
     parser.add_argument(
         "--shield",
@@ -321,6 +362,19 @@ def main(argv: list[str] | None = None) -> int:
         enable_shield_scan=(args.shield or args.require_shield),
         require_shield=args.require_shield,
     )
+
+    if args.deps:
+        deps_result = run_dependency_scan(
+            repo_path=repo_path,
+            include_dev_dependencies=(not args.deps_skip_dev),
+            advisory_db_path=args.deps_advisory_db,
+            advisory_provider=None,
+            osv_timeout_seconds=args.deps_timeout,
+            osv_batch_size=args.deps_batch_size,
+            ignore_file=args.ignore_file,
+            no_ignore=args.no_ignore,
+        )
+        scan_result = _merge_scan_results(scan_result, deps_result)
 
     diff: DiffResult | None = None
     diff_error = ""

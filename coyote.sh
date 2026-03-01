@@ -8,6 +8,7 @@
 #
 # Usage:
 #   ./coyote.sh scan [OPTIONS]         # Scan a repository
+#   ./coyote.sh deps [OPTIONS]         # Scan dependency vulnerabilities
 #   ./coyote.sh agent [SUBCOMMAND]     # Analyze AI agents
 #   ./coyote.sh --repo-url <url>       # Legacy: watch a specific repo
 #   ./coyote.sh --local-path <path>    # Legacy: scan a local repo
@@ -383,6 +384,13 @@ run_agent_mode() {
     exit $?
 }
 
+# ─── Dependency Mode ───────────────────────────────────────────────
+run_deps_mode() {
+    # Pass all remaining arguments to the Python dependency CLI
+    python3 -m coyote deps "$@"
+    exit $?
+}
+
 # ─── Help ──────────────────────────────────────────────────────────
 print_main_help() {
     echo -e "${BOLD}${CYAN}"
@@ -397,6 +405,7 @@ print_main_help() {
     echo ""
     echo "COMMANDS:"
     echo "    scan        Scan a repository for security issues"
+    echo "    deps        Scan dependency lockfiles/manifests for vulnerabilities"
     echo "    agent       Analyze OpenClaw/Moltbot AI agents"
     echo ""
     echo "SCAN OPTIONS:"
@@ -425,6 +434,9 @@ print_main_help() {
     echo "    # Analyze an AI agent"
     echo "    ./coyote.sh agent analyze ./my-agent.json"
     echo "    ./coyote.sh agent diff my-agent-id"
+    echo ""
+    echo "    # Scan dependency vulnerabilities"
+    echo "    ./coyote.sh deps --repo /path/to/repo --fail-on high"
     echo ""
 }
 
@@ -501,6 +513,9 @@ main() {
     case "$cmd" in
         scan)
             run_scan_mode "$@"
+            ;;
+        deps)
+            run_deps_mode "$@"
             ;;
         agent)
             run_agent_mode "$@"

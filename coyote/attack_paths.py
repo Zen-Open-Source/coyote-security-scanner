@@ -20,6 +20,7 @@ class FindingCategory(Enum):
     SENSITIVE_FILE = "sensitive_file"
     NETWORK_WEAKNESS = "network_weak"
     CODE_INJECTION = "code_injection"
+    SUPPLY_CHAIN = "supply_chain"
     DEBUG_CONFIG = "debug_config"
     INFRASTRUCTURE = "infrastructure"
     AUTH_TOKEN = "auth_token"
@@ -61,6 +62,8 @@ RULE_CATEGORY_MAP: dict[str, FindingCategory] = {
     "Eval Usage (JS)": FindingCategory.CODE_INJECTION,
     "Eval Usage (Python)": FindingCategory.CODE_INJECTION,
     "dangerouslySetInnerHTML": FindingCategory.CODE_INJECTION,
+    # SUPPLY_CHAIN
+    "Dependency Vulnerability": FindingCategory.SUPPLY_CHAIN,
     # INFRASTRUCTURE
     "Hardcoded Internal IP": FindingCategory.INFRASTRUCTURE,
     "Security Debt Marker": FindingCategory.INFRASTRUCTURE,
@@ -153,6 +156,16 @@ CHAIN_RULES: list[ChainRule] = [
         blast_radius="Data exfiltration via injected code",
         title_template="Code Injection -> Data Exfiltration",
         description_template="Code injection {source} exploits {target} to exfiltrate data",
+    ),
+    ChainRule(
+        name="supplychain_injection",
+        source_category=FindingCategory.SUPPLY_CHAIN,
+        target_category=FindingCategory.CODE_INJECTION,
+        relationship="increases exploitability of",
+        escalated_severity="CRITICAL",
+        blast_radius="RCE via vulnerable dependency plus application injection sink",
+        title_template="Vulnerable Dependency -> Exploit Chain",
+        description_template="Dependency vulnerability {source} combined with {target} can provide a practical RCE path",
     ),
     ChainRule(
         name="sensitive_infra",
