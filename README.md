@@ -68,7 +68,7 @@ v1.5.0
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
 - **Dependency Vulnerability Scanning**: Scan lockfiles/manifests and flag known vulnerable package versions via OSV or local advisory feeds
-- **OpenClaw CVE Detection**: Detects CVE-2026-25253, CVE-2026-24763, CVE-2026-25157, CVE-2026-25475, and CVE-2026-25593
+- **OpenClaw CVE Detection**: Detects 15 OpenClaw CVEs across gateway, runtime, UI, and packaging attack surfaces
 - **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
 
 ### AI Agent Security (NEW in v0.9)
@@ -78,7 +78,7 @@ v1.5.0
 - **Risk Assessment**: Automatic risk level classification (LOW to CRITICAL)
 - **Runtime Guardrails**: Lightweight monitoring and first-use prompting
 - **Policy Generation**: Machine-readable security policies for runtime enforcement
-- **OpenClaw Security Checks**: Five CVE checks plus hardening analysis for OpenClaw installations
+- **OpenClaw Security Checks**: Fifteen CVE checks plus hardening analysis for OpenClaw installations
 - **Langflow Security Checks**: Two high-impact CVE checks for exposed API/code-execution risk patterns
 
 ## Installation
@@ -1575,7 +1575,7 @@ NEW CAPABILITIES (3):
 ### OpenClaw Security Checks
 
 Coyote includes targeted security checks for [OpenClaw](https://openclaw.dev) installations.
-It scans for five OpenClaw CVEs plus additional hardening misconfigurations.
+It scans for fifteen OpenClaw CVEs plus additional hardening misconfigurations.
 
 Detailed CVE notes are in [`OpenClawCVEs.md`](OpenClawCVEs.md).
 
@@ -1588,6 +1588,16 @@ Detailed CVE notes are in [`OpenClawCVEs.md`](OpenClawCVEs.md).
 | CVE-2026-25157 | SSH command injection in remote mode path/target handling | 2026.1.29 |
 | CVE-2026-25475 | MEDIA path handling allows arbitrary file reads | 2026.1.30 |
 | CVE-2026-25593 | Unauthenticated local WebSocket `config.apply` path to command injection | 2026.1.20 |
+| CVE-2026-26324 | SSRF guard bypass using full-form IPv4-mapped IPv6 addresses | 2026.2.14 |
+| CVE-2026-26325 | `system.run` policy bypass via `rawCommand`/`command[]` mismatch | 2026.2.14 |
+| CVE-2026-26316 | BlueBubbles webhook authentication bypass in loopback trust flows | 2026.2.13 |
+| CVE-2026-26326 | `skills.status` secret disclosure to `operator.read` clients | 2026.2.14 |
+| CVE-2026-27003 | Telegram bot token exposure in logs | 2026.2.15 |
+| CVE-2026-27009 | Stored XSS in Control UI assistant identity rendering | 2026.2.15 |
+| CVE-2026-26320 | Deep-link command prompt truncation/social engineering on macOS | 2026.2.14 |
+| CVE-2026-27487 | macOS keychain credential refresh command injection | 2026.2.14 |
+| CVE-2026-27486 | CLI cleanup can terminate unrelated local processes | 2026.2.14 |
+| CVE-2026-27485 | Skill packaging symlink traversal can disclose local files | 2026.2.18 |
 
 #### Usage
 
@@ -1617,6 +1627,16 @@ python3 -m coyote agent secure-openclaw /path/to/openclaw/ --format markdown
 | CVE-2026-25157 | Remote SSH Path/Target Injection | Outdated version and unsafe remote-mode SSH path/target command composition |
 | CVE-2026-25475 | MEDIA Path Arbitrary File Read | Outdated version and unsafe MEDIA path handling (traversal/absolute path risk) |
 | CVE-2026-25593 | Unauthenticated WebSocket `config.apply` Injection | Outdated version and unauthenticated local WebSocket `config.apply` risk patterns |
+| CVE-2026-26324 | SSRF IPv4-Mapped IPv6 Guard Bypass | Outdated version and risky URL/SSRF preconditions for full-form IPv4-mapped IPv6 bypass |
+| CVE-2026-26325 | `system.run` rawCommand/argv Mismatch Bypass | Outdated version and risky node-host/allowlist/command-model mismatch preconditions |
+| CVE-2026-26316 | BlueBubbles Webhook Auth Bypass | Outdated version and risky BlueBubbles webhook auth/loopback trust preconditions |
+| CVE-2026-26326 | `skills.status` Secret Disclosure | Outdated version and risky `operator.read` + status/secret exposure preconditions |
+| CVE-2026-27003 | Telegram Bot Token Log Exposure | Outdated version and risky Telegram token/log-redaction preconditions |
+| CVE-2026-27009 | Control UI Stored XSS (Assistant Identity) | Outdated version and risky assistant identity/CSP HTML rendering preconditions |
+| CVE-2026-26320 | Deep Link Prompt Truncation / UI Misrepresentation | Affected macOS deep-link versions and risky unattended/deep-link preconditions |
+| CVE-2026-27487 | macOS Keychain Refresh Command Injection | Outdated version and risky keychain-refresh shell-command patterns |
+| CVE-2026-27486 | CLI Cleanup Cross-Process Termination | Outdated version and risky global cleanup command/process-match patterns |
+| CVE-2026-27485 | Skill Packager Symlink File Disclosure | Outdated version and risky symlink-following skill packaging preconditions |
 | OPENCLAW-TOKEN-EXPOSURE | Gateway Token in Plaintext | Gateway tokens stored in plaintext config files |
 | OPENCLAW-CONTAINER-ESCAPE | Container Escape Risk | `tools.exec.host` set to `gateway` instead of container-scoped |
 | OPENCLAW-APPROVAL-BYPASS | Exec Approvals Disabled | `exec.approvals` set to `off` |
@@ -1646,7 +1666,7 @@ CHECKS:
   VULNERABLE  CVE-2026-25475: MEDIA Path Arbitrary File Read
               OpenClaw version 2026.1.28 is below fix version 2026.1.30.
 
-Summary: 4 VULNERABLE | 7 PASS
+Summary: (varies by OpenClaw version and configuration)
 ============================================================
 ```
 

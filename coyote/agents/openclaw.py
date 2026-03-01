@@ -8,6 +8,16 @@ Tracked CVEs:
 - CVE-2026-25157
 - CVE-2026-25475
 - CVE-2026-25593
+- CVE-2026-26324
+- CVE-2026-26325
+- CVE-2026-26316
+- CVE-2026-26326
+- CVE-2026-27003
+- CVE-2026-27009
+- CVE-2026-26320
+- CVE-2026-27487
+- CVE-2026-27486
+- CVE-2026-27485
 """
 
 from __future__ import annotations
@@ -98,6 +108,16 @@ _CVE_FIX_VERSIONS = {
     "CVE-2026-25157": (2026, 1, 29),
     "CVE-2026-25475": (2026, 1, 30),
     "CVE-2026-25593": (2026, 1, 20),
+    "CVE-2026-26324": (2026, 2, 14),
+    "CVE-2026-26325": (2026, 2, 14),
+    "CVE-2026-26316": (2026, 2, 13),
+    "CVE-2026-26326": (2026, 2, 14),
+    "CVE-2026-27003": (2026, 2, 15),
+    "CVE-2026-27009": (2026, 2, 15),
+    "CVE-2026-26320": (2026, 2, 14),
+    "CVE-2026-27487": (2026, 2, 14),
+    "CVE-2026-27486": (2026, 2, 14),
+    "CVE-2026-27485": (2026, 2, 18),
 }
 
 # Backward-compatible export used by other modules.
@@ -108,6 +128,16 @@ _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
 _RISKY_INPUT_SOURCES = {"query", "querystring", "query_string", "external", "user", "env"}
 _SHELL_META_PATTERN = re.compile(r"[;&|`$()<>]")
+_IPV4_MAPPED_IPV6_FULL_PATTERN = re.compile(
+    r"\b0:0:0:0:0:ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}\b", re.IGNORECASE
+)
+_TELEGRAM_TOKEN_PATTERN = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}\b")
+_ASSISTANT_XSS_PATTERN = re.compile(
+    r"(?:</script|<script|javascript:|onerror\s*=|onload\s*=)", re.IGNORECASE
+)
+_INLINE_UNSAFE_SCRIPT_PATTERN = re.compile(
+    r"script-src[^;]*unsafe-inline", re.IGNORECASE
+)
 
 
 def _format_version(version: tuple[int, ...]) -> str:
@@ -231,6 +261,26 @@ def _is_absolute_path(path_value: str) -> bool:
     return bool(re.match(r"^[A-Za-z]:[\\/]", path_value))
 
 
+def _iter_config_scalar_strings(value: Any) -> list[str]:
+    values: list[str] = []
+    if isinstance(value, str):
+        values.append(value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            values.extend(_iter_config_scalar_strings(item))
+    elif isinstance(value, list):
+        for item in value:
+            values.extend(_iter_config_scalar_strings(item))
+    return values
+
+
+def _config_contains_pattern(config: dict[str, Any], pattern: re.Pattern[str]) -> bool:
+    for value in _iter_config_scalar_strings(config):
+        if pattern.search(value):
+            return True
+    return False
+
+
 class OpenClawSecurityAnalyzer:
     """Runs OpenClaw-specific security checks."""
 
@@ -254,6 +304,16 @@ class OpenClawSecurityAnalyzer:
         report.checks.append(self._check_cve_2026_25157(version, merged_config))
         report.checks.append(self._check_cve_2026_25475(version, merged_config))
         report.checks.append(self._check_cve_2026_25593(version, merged_config))
+        report.checks.append(self._check_cve_2026_26324(version, merged_config))
+        report.checks.append(self._check_cve_2026_26325(version, merged_config))
+        report.checks.append(self._check_cve_2026_26316(version, merged_config, base))
+        report.checks.append(self._check_cve_2026_26326(version, merged_config))
+        report.checks.append(self._check_cve_2026_27003(version, merged_config))
+        report.checks.append(self._check_cve_2026_27009(version, merged_config))
+        report.checks.append(self._check_cve_2026_26320(version, merged_config, base))
+        report.checks.append(self._check_cve_2026_27487(version, merged_config, base))
+        report.checks.append(self._check_cve_2026_27486(version, merged_config))
+        report.checks.append(self._check_cve_2026_27485(version, merged_config, base))
         report.checks.append(self._check_gateway_token_exposure(merged_config))
         report.checks.append(self._check_container_escape(merged_config))
         report.checks.append(self._check_approval_bypass(merged_config))
@@ -320,10 +380,20 @@ class OpenClawSecurityAnalyzer:
         remediation: str,
         version: str | None,
         fix_version: tuple[int, ...],
+        min_affected_version: tuple[int, ...] | None = None,
         indicators: list[str],
         safe_detail: str,
     ) -> OpenClawSecurityCheck:
-        version_state = self._version_vulnerable(version, fix_version)
+        parsed_version = _parse_version(version) if version else None
+        if parsed_version is None and version:
+            version_state: bool | None = None
+        elif parsed_version is None:
+            version_state = None
+        elif min_affected_version and parsed_version < min_affected_version:
+            version_state = False
+        else:
+            version_state = parsed_version < fix_version
+
         fix_version_str = _format_version(fix_version)
 
         if version_state is True:
@@ -346,6 +416,16 @@ class OpenClawSecurityAnalyzer:
             status = "WARNING"
         else:
             detail = safe_detail
+            if (
+                parsed_version is not None
+                and min_affected_version
+                and parsed_version < min_affected_version
+            ):
+                detail += (
+                    " Version predates known affected range (introduced in "
+                    + _format_version(min_affected_version)
+                    + ")."
+                )
             status = "SAFE"
 
         return OpenClawSecurityCheck(
@@ -701,6 +781,649 @@ class OpenClawSecurityAnalyzer:
             safe_detail=(
                 "Version is at or above 2026.1.20 and no unauthenticated "
                 "WebSocket config.apply risk pattern was detected."
+            ),
+        )
+
+    def _check_cve_2026_26324(
+        self, version: str | None, config: dict[str, Any]
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-26324: SSRF guard bypass via full-form IPv4-mapped IPv6.
+        """
+        indicators: list[str] = []
+
+        gateway_url_source = _get_config_value(
+            config,
+            "gatewayUrlSource",
+            "gateway_url_source",
+            "gateway.urlSource",
+            "gateway.url_source",
+            "fetch.urlSource",
+            "fetch.url_source",
+            "urlSource",
+        )
+        if str(gateway_url_source).lower() in _RISKY_INPUT_SOURCES:
+            indicators.append("Remote URL input can be sourced from untrusted input.")
+
+        allow_localhost = _coerce_bool(
+            _get_config_value(
+                config,
+                "ssrf.allowLocalhost",
+                "security.ssrf.allowLocalhost",
+                "network.allowLocalhost",
+            )
+        )
+        if allow_localhost is True:
+            indicators.append("SSRF controls allow localhost targets.")
+
+        allow_private = _coerce_bool(
+            _get_config_value(
+                config,
+                "ssrf.allowPrivateNetwork",
+                "security.ssrf.allowPrivateNetwork",
+                "network.allowPrivate",
+            )
+        )
+        if allow_private is True:
+            indicators.append("SSRF controls allow private-network targets.")
+
+        if _config_contains_pattern(config, _IPV4_MAPPED_IPV6_FULL_PATTERN):
+            indicators.append("Configuration includes full-form IPv4-mapped IPv6 addresses.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-26324",
+            name="SSRF IPv4-Mapped IPv6 Guard Bypass",
+            severity="HIGH",
+            description=(
+                "OpenClaw SSRF validation can be bypassed with full-form "
+                "IPv4-mapped IPv6 notation, allowing blocked targets to be reached."
+            ),
+            remediation=(
+                "Update SSRF parsing/normalization, reject unsafe mapped IPv6 targets, "
+                "and enforce strict allowlists for outbound URL fetches."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-26324"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.14 and no risky SSRF preconditions "
+                "were detected."
+            ),
+        )
+
+    def _check_cve_2026_26325(
+        self, version: str | None, config: dict[str, Any]
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-26325: system.run rawCommand/command[] mismatch bypass.
+        """
+        indicators: list[str] = []
+
+        exec_host = _get_config_value(
+            config,
+            "tools.exec.host",
+            "exec.host",
+            "system.run.host",
+            "runtime.host",
+        )
+        exec_host_value = str(exec_host).lower()
+        if any(token in exec_host_value for token in ("node", "gateway", "companion")):
+            indicators.append("Node-host execution path appears enabled.")
+
+        security_mode = _get_config_value(
+            config,
+            "security.mode",
+            "exec.security",
+            "exec.policy",
+            "execPolicy",
+            "security",
+        )
+        if "allowlist" in str(security_mode).lower():
+            indicators.append("Allowlist-style execution policy is configured.")
+
+        ask_mode = _get_config_value(
+            config,
+            "ask",
+            "exec.ask",
+            "security.ask",
+            "approvalMode",
+            "approvals.mode",
+        )
+        if "miss" in str(ask_mode).lower():
+            indicators.append("Execution prompts appear configured as ask-on-miss.")
+
+        raw_command = _get_config_value(
+            config,
+            "rawCommand",
+            "raw_command",
+            "system.rawCommand",
+            "system.run.rawCommand",
+        )
+        command_value = _get_config_value(
+            config,
+            "command",
+            "command[]",
+            "system.command",
+            "system.run.command",
+        )
+
+        if raw_command is not None and command_value is not None:
+            indicators.append("Both rawCommand and command[] style fields are present.")
+
+        if isinstance(raw_command, str) and _contains_shell_metacharacters(raw_command):
+            indicators.append("rawCommand contains shell metacharacters.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-26325",
+            name="system.run rawCommand/argv Mismatch Bypass",
+            severity="HIGH",
+            description=(
+                "A mismatch between rawCommand and command array handling in system.run "
+                "can bypass execution controls and user approvals."
+            ),
+            remediation=(
+                "Normalize execution paths, enforce a single canonical command model, "
+                "and apply allowlist/approval checks after canonicalization."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-26325"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.14 and no risky system.run mismatch "
+                "preconditions were detected."
+            ),
+        )
+
+    def _check_cve_2026_26316(
+        self, version: str | None, config: dict[str, Any], base: Path
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-26316: BlueBubbles webhook loopback auth bypass.
+        """
+        indicators: list[str] = []
+
+        provider = _get_config_value(
+            config,
+            "imessage.provider",
+            "messages.provider",
+            "provider",
+        )
+        has_bluebubbles_dependency = "@openclaw/bluebubbles" in str(
+            config.get("dependencies", "")
+        )
+        blue_enabled = _coerce_bool(
+            _get_config_value(
+                config,
+                "bluebubbles.enabled",
+                "blueBubbles.enabled",
+                "channels.bluebubbles.enabled",
+                "plugins.bluebubbles.enabled",
+            )
+        )
+        blue_active = (
+            blue_enabled is True
+            or "bluebubbles" in str(provider).lower()
+            or has_bluebubbles_dependency
+            or (base / "bluebubbles.config.json").exists()
+        )
+        if (
+            blue_active
+        ):
+            indicators.append("BlueBubbles integration appears enabled.")
+
+        webhook_secret = _get_config_value(
+            config,
+            "bluebubbles.webhookSecret",
+            "bluebubbles.webhook_secret",
+            "blueBubbles.webhookSecret",
+            "plugins.bluebubbles.webhookSecret",
+        )
+        if blue_active and (
+            webhook_secret is None or (isinstance(webhook_secret, str) and len(webhook_secret) < 12)
+        ):
+            indicators.append("BlueBubbles webhook secret is missing or weak.")
+
+        webhook_auth = _coerce_bool(
+            _get_config_value(
+                config,
+                "bluebubbles.requireWebhookAuth",
+                "bluebubbles.verifySignature",
+                "blueBubbles.requireWebhookAuth",
+            )
+        )
+        if blue_active and webhook_auth is False:
+            indicators.append("BlueBubbles webhook authentication appears disabled.")
+
+        bind_addr = _get_config_value(config, "bind", "host", "listen", "gateway.bind")
+        if blue_active and str(bind_addr).strip().lower() in ("127.0.0.1", "localhost", "::1"):
+            indicators.append("Gateway is loopback-bound; reverse-proxy trust boundary may apply.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-26316",
+            name="BlueBubbles Webhook Auth Bypass",
+            severity="HIGH",
+            description=(
+                "BlueBubbles webhook auth checks can be bypassed through loopback "
+                "trust assumptions, enabling unauthorized command execution."
+            ),
+            remediation=(
+                "Require explicit webhook authentication/verification and do not rely "
+                "on loopback origin assumptions alone."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-26316"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.13 and no risky BlueBubbles webhook "
+                "preconditions were detected."
+            ),
+        )
+
+    def _check_cve_2026_26326(
+        self, version: str | None, config: dict[str, Any]
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-26326: skills.status secret disclosure to operator.read.
+        """
+        indicators: list[str] = []
+
+        scopes = self._get_scopes(config)
+        if "operator.read" in scopes:
+            indicators.append("operator.read scope is granted.")
+
+        skills_status_enabled = _coerce_bool(
+            _get_config_value(
+                config,
+                "skills.status.enabled",
+                "skills.status",
+                "skillsStatusEnabled",
+                "skillsStatus",
+            )
+        )
+        if skills_status_enabled is True:
+            indicators.append("skills.status endpoint appears enabled.")
+
+        discord_token = _get_config_value(
+            config,
+            "discord.token",
+            "discord.botToken",
+            "discordToken",
+            "skills.discord.token",
+        )
+        if isinstance(discord_token, str) and len(discord_token) > 12:
+            indicators.append("Discord token appears present in configuration.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-26326",
+            name="skills.status Secret Disclosure",
+            severity="MEDIUM",
+            description=(
+                "Sensitive values in skills.status responses may be exposed to "
+                "operator.read identities."
+            ),
+            remediation=(
+                "Redact secrets from status endpoints and restrict sensitive fields "
+                "from operator.read scope responses."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-26326"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.14 and no risky skills.status "
+                "disclosure preconditions were detected."
+            ),
+        )
+
+    def _check_cve_2026_27003(
+        self, version: str | None, config: dict[str, Any]
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-27003: Telegram bot token exposure in logs.
+        """
+        indicators: list[str] = []
+
+        telegram_token_keys = (
+            "telegram.token",
+            "telegram.botToken",
+            "telegramToken",
+            "integrations.telegram.token",
+        )
+        found_keys: list[str] = []
+        for key in telegram_token_keys:
+            value = _get_config_value(config, key)
+            if isinstance(value, str) and _TELEGRAM_TOKEN_PATTERN.search(value):
+                found_keys.append(key)
+
+        if found_keys:
+            indicators.append(
+                "Telegram bot token detected in config keys: " + ", ".join(found_keys) + "."
+            )
+
+        if _config_contains_pattern(config, re.compile(r"api\.telegram\.org/bot", re.IGNORECASE)):
+            indicators.append("Telegram Bot API URL usage detected in configuration.")
+
+        log_redaction = _coerce_bool(
+            _get_config_value(
+                config,
+                "logging.redactTokens",
+                "logging.redact_tokens",
+                "security.logRedaction",
+            )
+        )
+        if log_redaction is False:
+            indicators.append("Token redaction in logs appears disabled.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-27003",
+            name="Telegram Bot Token Log Exposure",
+            severity="MEDIUM",
+            description=(
+                "Telegram bot credentials can be written to logs in vulnerable "
+                "OpenClaw releases."
+            ),
+            remediation=(
+                "Upgrade, enable secret redaction in logs, and rotate Telegram bot "
+                "tokens if historical exposure is possible."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-27003"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.15 and no Telegram token logging "
+                "risk patterns were detected."
+            ),
+        )
+
+    def _check_cve_2026_27009(
+        self, version: str | None, config: dict[str, Any]
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-27009: stored XSS in Control UI assistant identity rendering.
+        """
+        indicators: list[str] = []
+
+        identity_values = [
+            _get_config_value(config, "assistant.name", "assistantName", "identity.name", "profile.name", "name"),
+            _get_config_value(config, "assistant.avatar", "assistantAvatar", "identity.avatar", "profile.avatar"),
+            _get_config_value(config, "assistant.description", "identity.description", "profile.description"),
+        ]
+
+        for value in identity_values:
+            if isinstance(value, str) and _ASSISTANT_XSS_PATTERN.search(value):
+                indicators.append("Assistant identity fields contain potential script/HTML injection payloads.")
+                break
+
+        csp_value = _get_config_value(config, "controlUi.csp", "ui.csp", "csp")
+        if isinstance(csp_value, str) and _INLINE_UNSAFE_SCRIPT_PATTERN.search(csp_value):
+            indicators.append("Control UI CSP allows unsafe inline scripts.")
+
+        if _coerce_bool(_get_config_value(config, "controlUi.trustHtml", "ui.trustHtml")) is True:
+            indicators.append("Control UI trusted-HTML rendering appears enabled.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-27009",
+            name="Control UI Stored XSS (Assistant Identity)",
+            severity="HIGH",
+            description=(
+                "Unsanitized assistant identity fields can trigger stored XSS in "
+                "the OpenClaw Control UI."
+            ),
+            remediation=(
+                "Sanitize/escape assistant identity fields before rendering and enforce "
+                "strict CSP without unsafe inline script allowances."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-27009"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.15 and no obvious stored-XSS "
+                "identity risk patterns were detected."
+            ),
+        )
+
+    def _check_cve_2026_26320(
+        self, version: str | None, config: dict[str, Any], base: Path
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-26320: deep-link prompt truncation/social engineering on macOS.
+        """
+        indicators: list[str] = []
+
+        platform = _get_config_value(config, "platform", "os", "desktop.platform")
+        if "mac" in str(platform).lower() or base.suffix.lower() == ".app":
+            indicators.append("macOS desktop context detected.")
+
+        deep_link_enabled = _coerce_bool(
+            _get_config_value(
+                config,
+                "deepLink.enabled",
+                "deep_link.enabled",
+                "desktop.deepLink.enabled",
+                "desktop.enableDeepLinks",
+            )
+        )
+        if deep_link_enabled is True:
+            indicators.append("Deep link handling is enabled.")
+
+        if _config_contains_pattern(config, re.compile(r"openclaw://agent", re.IGNORECASE)):
+            indicators.append("openclaw://agent deep-link target detected.")
+
+        unattended_key = _get_config_value(
+            config,
+            "deepLink.key",
+            "deep_link.key",
+            "desktop.unattendedKey",
+            "unattended.key",
+        )
+        if deep_link_enabled is True and not str(unattended_key).strip():
+            indicators.append("No unattended-agent key configured for deep-link flow.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-26320",
+            name="Deep Link Prompt Truncation / UI Misrepresentation",
+            severity="HIGH",
+            description=(
+                "On macOS, deep-link command confirmations can truncate payload context, "
+                "allowing social-engineering execution."
+            ),
+            remediation=(
+                "Upgrade desktop client, display full deep-link command context, and "
+                "require explicit unattended-agent key authorization."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-26320"],
+            min_affected_version=(2026, 2, 6),
+            indicators=indicators,
+            safe_detail=(
+                "Version is outside the known vulnerable deep-link range or patched "
+                "at/above 2026.2.14."
+            ),
+        )
+
+    def _check_cve_2026_27487(
+        self, version: str | None, config: dict[str, Any], base: Path
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-27487: macOS keychain refresh command injection.
+        """
+        indicators: list[str] = []
+
+        platform = _get_config_value(config, "platform", "os", "desktop.platform")
+        if "mac" in str(platform).lower() or base.suffix.lower() == ".app":
+            indicators.append("macOS desktop context detected.")
+
+        auth_provider = _get_config_value(
+            config,
+            "auth.provider",
+            "authProvider",
+            "claude.provider",
+            "cli.auth.provider",
+        )
+        if "claude" in str(auth_provider).lower():
+            indicators.append("Claude auth provider appears enabled.")
+
+        keychain_enabled = _coerce_bool(
+            _get_config_value(
+                config,
+                "keychain.enabled",
+                "auth.keychain.enabled",
+                "claude.keychain.enabled",
+            )
+        )
+        if keychain_enabled is True:
+            indicators.append("Keychain credential refresh appears enabled.")
+
+        keychain_command = _get_config_value(
+            config,
+            "keychain.command",
+            "auth.keychain.command",
+            "claude.keychain.command",
+        )
+        if isinstance(keychain_command, str):
+            if "security add-generic-password" in keychain_command:
+                indicators.append("Keychain command template uses security add-generic-password.")
+            if "sh -c" in keychain_command or _contains_shell_metacharacters(keychain_command):
+                indicators.append("Keychain command appears shell-evaluated.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-27487",
+            name="macOS Keychain Refresh Command Injection",
+            severity="HIGH",
+            description=(
+                "Unsafe command composition during keychain credential refresh can "
+                "lead to command injection."
+            ),
+            remediation=(
+                "Use fixed argument-array invocation for security(1), avoid shell "
+                "evaluation, and sanitize all token/keychain inputs."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-27487"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.14 and no risky keychain-refresh "
+                "command patterns were detected."
+            ),
+        )
+
+    def _check_cve_2026_27486(
+        self, version: str | None, config: dict[str, Any]
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-27486: cleanup routine may kill unrelated processes.
+        """
+        indicators: list[str] = []
+
+        cleanup_enabled = _coerce_bool(
+            _get_config_value(
+                config,
+                "cleanup.enabled",
+                "cli.cleanup.enabled",
+                "runner.cleanup.enabled",
+            )
+        )
+        if cleanup_enabled is True:
+            indicators.append("Automatic cleanup process is enabled.")
+
+        cleanup_scope = _get_config_value(
+            config,
+            "cleanup.scope",
+            "cli.cleanup.scope",
+            "runner.cleanup.scope",
+        )
+        if str(cleanup_scope).lower() in {"all", "global", "system"}:
+            indicators.append("Cleanup scope appears global/system-wide.")
+
+        cleanup_command = _get_config_value(
+            config,
+            "cleanup.command",
+            "cli.cleanup.command",
+            "runner.cleanup.command",
+        )
+        if isinstance(cleanup_command, str) and re.search(r"\b(pkill|killall)\b", cleanup_command):
+            indicators.append("Cleanup command uses process-name matching (pkill/killall).")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-27486",
+            name="CLI Cleanup Cross-Process Termination",
+            severity="MEDIUM",
+            description=(
+                "A cleanup path can terminate unrelated local processes when matching "
+                "criteria are overly broad."
+            ),
+            remediation=(
+                "Use PID-scoped cleanup only, avoid name-pattern kills, and enforce "
+                "strict process ownership checks."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-27486"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.14 and no risky cleanup "
+                "cross-process kill patterns were detected."
+            ),
+        )
+
+    def _check_cve_2026_27485(
+        self, version: str | None, config: dict[str, Any], base: Path
+    ) -> OpenClawSecurityCheck:
+        """
+        CVE-2026-27485: skill packager follows symlinks and can leak local files.
+        """
+        indicators: list[str] = []
+
+        follow_symlinks = _coerce_bool(
+            _get_config_value(
+                config,
+                "skills.packaging.followSymlinks",
+                "skills.package.follow_symlinks",
+                "skillCreator.followSymlinks",
+                "packageSkill.followSymlinks",
+            )
+        )
+        if follow_symlinks is True:
+            indicators.append("Skill packaging is configured to follow symlinks.")
+
+        include_symlinks = _coerce_bool(
+            _get_config_value(
+                config,
+                "skills.packaging.includeSymlinks",
+                "packageSkill.includeSymlinks",
+            )
+        )
+        if include_symlinks is True:
+            indicators.append("Skill packaging includes symlink targets.")
+
+        script_path = _get_config_value(
+            config,
+            "skills.packaging.script",
+            "skillCreator.script",
+            "packageSkill.script",
+        )
+        if isinstance(script_path, str) and "package_skill.py" in script_path:
+            indicators.append("Skill package script path references package_skill.py.")
+
+        if (base / "skills" / "skill-creator" / "scripts" / "package_skill.py").exists():
+            indicators.append("Local skill package script detected in installation path.")
+
+        return self._build_cve_check(
+            cve_id="CVE-2026-27485",
+            name="Skill Packager Symlink File Disclosure",
+            severity="LOW",
+            description=(
+                "Skill packaging can follow symlinks and unintentionally include "
+                "sensitive local files in bundled artifacts."
+            ),
+            remediation=(
+                "Upgrade packaging tooling, block symlink traversal in pack jobs, "
+                "and constrain package roots to trusted directories."
+            ),
+            version=version,
+            fix_version=_CVE_FIX_VERSIONS["CVE-2026-27485"],
+            indicators=indicators,
+            safe_detail=(
+                "Version is at or above 2026.2.18 and no risky symlink-packaging "
+                "patterns were detected."
             ),
         )
 
