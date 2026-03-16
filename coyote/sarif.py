@@ -134,10 +134,13 @@ def _build_result(finding: PatternMatch, repo_path: str) -> dict[str, Any]:
     }
 
     # Add matched text as a property (but masked for security)
+    properties: dict[str, Any] = {}
     if finding.matched_text:
-        result["properties"] = {
-            "matchedText": finding.matched_text,
-        }
+        properties["matchedText"] = finding.matched_text
+    if finding.metadata:
+        properties.update(finding.metadata)
+    if properties:
+        result["properties"] = properties
 
     return result
 

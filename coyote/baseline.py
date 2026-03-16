@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -80,6 +81,7 @@ def _finding_to_baseline_dict(f: PatternMatch) -> dict[str, Any]:
         "line_content": f.line_content,
         "description": f.description,
         "matched_text": f.matched_text,
+        "metadata": f.metadata,
     }
 
 
@@ -94,6 +96,7 @@ def _baseline_dict_to_finding(d: dict[str, Any]) -> PatternMatch:
         line_content=d.get("line_content", ""),
         description=d["description"],
         matched_text=d.get("matched_text", ""),
+        metadata=d.get("metadata", {}),
     )
 
 
@@ -173,6 +176,7 @@ def diff_scans(
     current_result: ScanResult,
     baseline_path: str = DEFAULT_BASELINE_PATH,
     current_commit: str = "",
+    finding_filter: Callable[[PatternMatch], bool] | None = None,
 ) -> DiffResult:
     """
     Compare current scan results against a saved baseline.
@@ -194,10 +198,15 @@ def diff_scans(
         FileNotFoundError: If baseline doesn't exist
     """
     baseline_findings, metadata = load_baseline(baseline_path)
+    current_findings = current_result.findings
+
+    if finding_filter is not None:
+        baseline_findings = [f for f in baseline_findings if finding_filter(f)]
+        current_findings = [f for f in current_findings if finding_filter(f)]
 
     # Build sets of finding IDs for fast lookup
     baseline_ids = {f.finding_id for f in baseline_findings}
-    current_ids = {f.finding_id for f in current_result.findings}
+    current_ids = {f.finding_id for f in current_findings}
 
     # Categorize findings
     new_ids = current_ids - baseline_ids
@@ -205,9 +214,9 @@ def diff_scans(
     existing_ids = current_ids & baseline_ids
 
     # Build finding lists
-    new_findings = [f for f in current_result.findings if f.finding_id in new_ids]
+    new_findings = [f for f in current_findings if f.finding_id in new_ids]
     fixed_findings = [f for f in baseline_findings if f.finding_id in fixed_ids]
-    existing_findings = [f for f in current_result.findings if f.finding_id in existing_ids]
+    existing_findings = [f for f in current_findings if f.finding_id in existing_ids]
 
     return DiffResult(
         new_findings=new_findings,

@@ -23,7 +23,7 @@ from .baseline import (
     save_baseline,
 )
 from .config import load_config
-from .deps import run_dependency_scan
+from .deps import DEPENDENCY_RULE_NAME, run_dependency_scan
 from .sarif import generate_sarif, sarif_to_json
 from .scanner import ScanResult, run_scan
 
@@ -216,6 +216,32 @@ def _merge_scan_results(primary: ScanResult, secondary: ScanResult) -> ScanResul
     return primary
 
 
+def _gate_finding_allowed(finding, *, deps_reachable_only: bool) -> bool:
+    if not deps_reachable_only:
+        return True
+    if finding.rule_name != DEPENDENCY_RULE_NAME:
+        return True
+    reachability = str(finding.metadata.get("reachability", "")).lower()
+    if not reachability:
+        return True
+    return reachability == "reachable"
+
+
+def _filtered_scan_result(scan_result: ScanResult, *, deps_reachable_only: bool) -> ScanResult:
+    return ScanResult(
+        repo_path=scan_result.repo_path,
+        findings=[
+            finding for finding in scan_result.findings
+            if _gate_finding_allowed(finding, deps_reachable_only=deps_reachable_only)
+        ],
+        files_scanned=scan_result.files_scanned,
+        files_skipped=scan_result.files_skipped,
+        errors=list(scan_result.errors),
+        findings_suppressed=scan_result.findings_suppressed,
+        suppression_config=scan_result.suppression_config,
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Coyote CI gate (scan + baseline diff + fail thresholds)",
@@ -301,6 +327,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip development dependencies when lockfiles mark them.",
     )
     parser.add_argument(
+        "--deps-reachable-only",
+        action="store_true",
+        help="Fail only on dependency findings whose vulnerable packages are statically reachable.",
+    )
+    parser.add_argument(
         "--shield",
         action="store_true",
         help="Validate shield.md structure against Shield v0 checks.",
@@ -376,19 +407,32 @@ def main(argv: list[str] | None = None) -> int:
         )
         scan_result = _merge_scan_results(scan_result, deps_result)
 
+    evaluation_scan_result = _filtered_scan_result(
+        scan_result,
+        deps_reachable_only=args.deps_reachable_only,
+    )
+
     diff: DiffResult | None = None
     diff_error = ""
     baseline_found = baseline_exists(args.baseline_path)
 
     if baseline_found:
         try:
-            diff = diff_scans(scan_result, args.baseline_path, current_commit="")
+            diff = diff_scans(
+                evaluation_scan_result,
+                args.baseline_path,
+                current_commit="",
+                finding_filter=lambda finding: _gate_finding_allowed(
+                    finding,
+                    deps_reachable_only=args.deps_reachable_only,
+                ),
+            )
         except Exception as exc:  # keep gate deterministic even with bad baseline file
             diff = None
             diff_error = str(exc)
 
     evaluation = evaluate_gate(
-        scan_result,
+        evaluation_scan_result,
         diff,
         baseline_found=baseline_found,
         require_baseline=args.require_baseline,
@@ -412,6 +456,9 @@ def main(argv: list[str] | None = None) -> int:
     summary_payload = {
         "scanner": f"Coyote v{__version__}",
         "repo_path": repo_path,
+        "filters": {
+            "deps_reachable_only": args.deps_reachable_only,
+        },
         "evaluation": evaluation.to_dict(),
     }
 
@@ -426,11 +473,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_human_summary(
             repo_path=repo_path,
-            scan_result=scan_result,
+            scan_result=evaluation_scan_result,
             evaluation=evaluation,
             fail_on=args.fail_on,
             fail_on_new=args.fail_on_new,
         )
+        if args.deps_reachable_only:
+            print("Gate Filter: dependency findings count only when reachability=reachable")
 
     return 0 if evaluation.passed else 1
 

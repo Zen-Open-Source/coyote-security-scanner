@@ -8,7 +8,12 @@ from coyote.attack_paths import AttackPathAnalyzer
 from coyote.patterns import PatternMatch, Severity
 
 
-def _finding(rule_name: str, severity: Severity, finding_id: str) -> PatternMatch:
+def _finding(
+    rule_name: str,
+    severity: Severity,
+    finding_id: str,
+    metadata: dict[str, object] | None = None,
+) -> PatternMatch:
     return PatternMatch(
         rule_name=rule_name,
         severity=severity,
@@ -18,13 +23,14 @@ def _finding(rule_name: str, severity: Severity, finding_id: str) -> PatternMatc
         description=f"{rule_name} detected",
         matched_text="example",
         finding_id=finding_id,
+        metadata=metadata or {},
     )
 
 
 class AttackPathTests(unittest.TestCase):
     def test_supply_chain_and_code_injection_create_path(self) -> None:
         findings = [
-            _finding("Dependency Vulnerability", Severity.HIGH, "dep001"),
+            _finding("Dependency Vulnerability", Severity.HIGH, "dep001", {"reachability": "reachable"}),
             _finding("Eval Usage (JS)", Severity.MEDIUM, "inj001"),
         ]
 
@@ -35,6 +41,18 @@ class AttackPathTests(unittest.TestCase):
             any(path.title == "Vulnerable Dependency -> Exploit Chain" for path in result.paths)
         )
         self.assertEqual("CRITICAL", result.worst_severity)
+
+    def test_non_reachable_dependency_does_not_create_supply_chain_path(self) -> None:
+        findings = [
+            _finding("Dependency Vulnerability", Severity.HIGH, "dep002", {"reachability": "direct-unused"}),
+            _finding("Eval Usage (JS)", Severity.MEDIUM, "inj001"),
+        ]
+
+        result = AttackPathAnalyzer().analyze(findings)
+
+        self.assertFalse(
+            any(path.title == "Vulnerable Dependency -> Exploit Chain" for path in result.paths)
+        )
 
 
 if __name__ == "__main__":

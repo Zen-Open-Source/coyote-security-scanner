@@ -252,6 +252,15 @@ ESCALATION_BONUS = {
 class AttackPathAnalyzer:
     """Analyzes scan findings to identify exploitable attack paths."""
 
+    def _chain_allowed(self, source: AttackNode, target: AttackNode, rule: ChainRule) -> bool:
+        if rule.name != "supplychain_injection":
+            return True
+
+        reachability = source.finding.metadata.get("reachability")
+        if not reachability:
+            return True
+        return str(reachability).lower() == "reachable"
+
     def analyze(self, findings: list[PatternMatch]) -> AttackPathResult:
         # Step 1: Categorize findings
         nodes: list[AttackNode] = []
@@ -279,6 +288,8 @@ class AttackPathAnalyzer:
             for s in sources:
                 for t in targets:
                     if s.node_id == t.node_id:
+                        continue
+                    if not self._chain_allowed(s, t, rule):
                         continue
                     adjacency.setdefault(s.node_id, []).append((t.node_id, rule))
 

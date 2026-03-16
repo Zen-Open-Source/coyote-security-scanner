@@ -22,6 +22,7 @@ def _finding_to_dict(f) -> dict:
         "line": f.line_number,
         "description": f.description,
         "matched_text": f.matched_text or None,
+        "metadata": f.metadata or None,
     }
 
 
@@ -97,6 +98,16 @@ def generate_markdown_report(result: ScanResult, commit_hash: str = "") -> str:
             lines.append(f"  - Location: {loc}")
             if f.matched_text:
                 lines.append(f"  - Match: `{f.matched_text}`")
+            if f.metadata:
+                metadata_parts = []
+                reachability = f.metadata.get("reachability")
+                if reachability:
+                    metadata_parts.append(f"reachability={reachability}")
+                exploitability = f.metadata.get("exploitability")
+                if exploitability:
+                    metadata_parts.append(f"exploitability={exploitability}")
+                if metadata_parts:
+                    lines.append(f"  - Metadata: `{', '.join(metadata_parts)}`")
             lines.append("")
 
     if result.errors:

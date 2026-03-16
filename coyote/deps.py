@@ -7,6 +7,7 @@ and emits findings using the shared ScanResult/PatternMatch model.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -16,6 +17,11 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import yaml
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ ships tomllib
+    tomllib = None  # type: ignore[assignment]
 
 from . import __version__
 from .patterns import PatternMatch, Severity
@@ -58,6 +64,37 @@ OSV_ECOSYSTEM_MAP = {
 
 FAIL_THRESHOLDS = ("none", "critical", "high", "medium", "low")
 
+REACHABILITY_SUPPORTED_ECOSYSTEMS = {
+    "pypi": "python",
+    "npm": "javascript",
+}
+
+REACHABILITY_STATUSES = (
+    "reachable",
+    "direct-unused",
+    "transitive-only",
+    "unknown",
+)
+
+PYTHON_SOURCE_EXTENSIONS = {".py"}
+JAVASCRIPT_SOURCE_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+
+PYPI_IMPORT_ALIASES = {
+    "beautifulsoup4": ("bs4",),
+    "opencv-python": ("cv2",),
+    "pillow": ("pil",),
+    "pyyaml": ("yaml",),
+    "python-dateutil": ("dateutil",),
+    "scikit-learn": ("sklearn",),
+}
+
+JS_IMPORT_PATTERNS = [
+    re.compile(r"""import\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?['"]([^'"]+)['"]"""),
+    re.compile(r"""export\s+[^'"]+?\s+from\s+['"]([^'"]+)['"]"""),
+    re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)"""),
+    re.compile(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)"""),
+]
+
 
 @dataclass(frozen=True)
 class DependencyCoordinate:
@@ -70,6 +107,7 @@ class DependencyCoordinate:
     line_number: int = 0
     line_content: str = ""
     is_dev_dependency: bool = False
+    is_direct_dependency: bool | None = None
 
 
 @dataclass
@@ -85,6 +123,22 @@ class DependencyAdvisory:
     aliases: list[str] = field(default_factory=list)
     fixed_versions: list[str] = field(default_factory=list)
     source: str = "osv"
+
+
+@dataclass
+class ImportUsage:
+    language: str
+    files_analyzed: int = 0
+    import_map: dict[str, set[str]] = field(default_factory=dict)
+
+
+@dataclass
+class DependencyReachability:
+    status: str
+    language: str
+    direct_dependency: bool | None
+    imports: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
 
 
 class AdvisoryProvider(Protocol):
@@ -381,6 +435,136 @@ def _normalize_name(name: str) -> str:
     return name.strip()
 
 
+def _normalized_lower_name(name: str) -> str:
+    return _normalize_name(name).strip().lower()
+
+
+def _load_toml_file(path: str) -> dict[str, Any]:
+    if tomllib is None or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "rb") as handle:
+            parsed = tomllib.load(handle)
+    except (OSError, TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _extract_requirement_name(requirement: str) -> str:
+    match = re.match(r"\s*([A-Za-z0-9_.\-]+)", requirement)
+    if not match:
+        return ""
+    return _normalized_lower_name(match.group(1))
+
+
+def _package_names_from_mapping(value: Any) -> set[str]:
+    if not isinstance(value, dict):
+        return set()
+    return {
+        _normalized_lower_name(str(name))
+        for name in value.keys()
+        if _normalized_lower_name(str(name))
+    }
+
+
+def _package_names_from_sequence(value: Any) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    names: set[str] = set()
+    for item in value:
+        name = _extract_requirement_name(str(item))
+        if name:
+            names.add(name)
+    return names
+
+
+def _load_poetry_direct_dependencies(repo_path: str, manifest_path: str) -> tuple[set[str], set[str]]:
+    manifest_dir = os.path.dirname(os.path.join(repo_path, manifest_path))
+    pyproject_path = os.path.join(manifest_dir, "pyproject.toml")
+    parsed = _load_toml_file(pyproject_path)
+    if not parsed:
+        return set(), set()
+
+    direct_main: set[str] = set()
+    direct_dev: set[str] = set()
+
+    tool = parsed.get("tool")
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry")
+        if isinstance(poetry, dict):
+            direct_main.update(
+                name for name in _package_names_from_mapping(poetry.get("dependencies"))
+                if name != "python"
+            )
+            direct_dev.update(_package_names_from_mapping(poetry.get("dev-dependencies")))
+
+            groups = poetry.get("group")
+            if isinstance(groups, dict):
+                for group_name, group_value in groups.items():
+                    if not isinstance(group_value, dict):
+                        continue
+                    dependencies = _package_names_from_mapping(group_value.get("dependencies"))
+                    if str(group_name).lower() == "dev":
+                        direct_dev.update(dependencies)
+                    else:
+                        direct_main.update(dependencies)
+
+    project = parsed.get("project")
+    if isinstance(project, dict):
+        direct_main.update(_package_names_from_sequence(project.get("dependencies")))
+        optional_deps = project.get("optional-dependencies")
+        if isinstance(optional_deps, dict):
+            for values in optional_deps.values():
+                direct_main.update(_package_names_from_sequence(values))
+
+    return direct_main, direct_dev
+
+
+def _load_package_json_direct_dependencies(repo_path: str, manifest_path: str) -> tuple[set[str], set[str]]:
+    manifest_dir = os.path.dirname(os.path.join(repo_path, manifest_path))
+    package_json_path = os.path.join(manifest_dir, "package.json")
+    if not os.path.isfile(package_json_path):
+        return set(), set()
+    try:
+        with open(package_json_path, "r", encoding="utf-8") as handle:
+            parsed = json.load(handle)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return set(), set()
+    if not isinstance(parsed, dict):
+        return set(), set()
+
+    direct_main = set()
+    direct_main.update(_package_names_from_mapping(parsed.get("dependencies")))
+    direct_main.update(_package_names_from_mapping(parsed.get("optionalDependencies")))
+    direct_dev = _package_names_from_mapping(parsed.get("devDependencies"))
+    return direct_main, direct_dev
+
+
+def _load_cargo_direct_dependencies(repo_path: str, manifest_path: str) -> tuple[set[str], set[str]]:
+    manifest_dir = os.path.dirname(os.path.join(repo_path, manifest_path))
+    cargo_toml_path = os.path.join(manifest_dir, "Cargo.toml")
+    parsed = _load_toml_file(cargo_toml_path)
+    if not parsed:
+        return set(), set()
+
+    direct_main: set[str] = set()
+    direct_dev: set[str] = set()
+
+    for section_name, target in (("dependencies", direct_main), ("build-dependencies", direct_main), ("dev-dependencies", direct_dev)):
+        target.update(_package_names_from_mapping(parsed.get(section_name)))
+
+    targets = parsed.get("target")
+    if isinstance(targets, dict):
+        for target_cfg in targets.values():
+            if not isinstance(target_cfg, dict):
+                continue
+            direct_main.update(_package_names_from_mapping(target_cfg.get("dependencies")))
+            direct_main.update(_package_names_from_mapping(target_cfg.get("build-dependencies")))
+            direct_dev.update(_package_names_from_mapping(target_cfg.get("dev-dependencies")))
+
+    return direct_main, direct_dev
+
+
 def discover_dependency_files(repo_path: str) -> list[str]:
     """Discover known dependency manifests relative to repo_path."""
     manifests: list[str] = []
@@ -428,17 +612,19 @@ def _parse_requirements(content: str, manifest_path: str) -> list[DependencyCoor
                 manifest_path=manifest_path,
                 line_number=idx,
                 line_content=raw_line.strip(),
+                is_direct_dependency=True,
             )
         )
 
     return deps
 
 
-def _parse_poetry_lock(content: str, manifest_path: str) -> list[DependencyCoordinate]:
+def _parse_poetry_lock(repo_path: str, content: str, manifest_path: str) -> list[DependencyCoordinate]:
     deps: list[DependencyCoordinate] = []
     block: dict[str, str] = {}
     block_start_line = 0
     in_nested_table = False
+    direct_main, direct_dev = _load_poetry_direct_dependencies(repo_path, manifest_path)
 
     def flush_block() -> None:
         if not block:
@@ -449,15 +635,21 @@ def _parse_poetry_lock(content: str, manifest_path: str) -> list[DependencyCoord
             return
         category = block.get("category", "").strip().strip('"').lower()
         is_dev = category == "dev"
+        normalized_name = _normalize_name(name)
+        lowered_name = normalized_name.lower()
+        is_direct: bool | None = None
+        if direct_main or direct_dev:
+            is_direct = lowered_name in direct_main or lowered_name in direct_dev
         deps.append(
             DependencyCoordinate(
                 ecosystem="pypi",
-                name=_normalize_name(name),
+                name=normalized_name,
                 version=version,
                 manifest_path=manifest_path,
                 line_number=block_start_line,
                 line_content=f'{name} = "{version}"',
                 is_dev_dependency=is_dev,
+                is_direct_dependency=is_direct,
             )
         )
 
@@ -486,13 +678,24 @@ def _parse_poetry_lock(content: str, manifest_path: str) -> list[DependencyCoord
     return deps
 
 
-def _parse_package_lock(content: str, manifest_path: str) -> list[DependencyCoordinate]:
+def _parse_package_lock(repo_path: str, content: str, manifest_path: str) -> list[DependencyCoordinate]:
     deps: list[DependencyCoordinate] = []
     parsed = json.loads(content)
 
     # lockfile v2+ format
     packages = parsed.get("packages")
     if isinstance(packages, dict):
+        root_metadata = packages.get("")
+        direct_main: set[str] = set()
+        direct_dev: set[str] = set()
+        if isinstance(root_metadata, dict):
+            direct_main.update(_package_names_from_mapping(root_metadata.get("dependencies")))
+            direct_main.update(_package_names_from_mapping(root_metadata.get("optionalDependencies")))
+            direct_dev.update(_package_names_from_mapping(root_metadata.get("devDependencies")))
+        if not direct_main and not direct_dev:
+            file_main, file_dev = _load_package_json_direct_dependencies(repo_path, manifest_path)
+            direct_main.update(file_main)
+            direct_dev.update(file_dev)
         for path_key, metadata in packages.items():
             if not path_key or not isinstance(metadata, dict):
                 continue
@@ -503,7 +706,10 @@ def _parse_package_lock(content: str, manifest_path: str) -> list[DependencyCoor
             name_match = re.search(r"(?:^|/)node_modules/(@[^/]+/[^/]+|[^/]+)$", path_key)
             if not name_match:
                 continue
-            name = name_match.group(1).strip().lower()
+            name = _normalized_lower_name(name_match.group(1))
+            is_direct: bool | None = None
+            if direct_main or direct_dev:
+                is_direct = name in direct_main or name in direct_dev
 
             deps.append(
                 DependencyCoordinate(
@@ -514,18 +720,24 @@ def _parse_package_lock(content: str, manifest_path: str) -> list[DependencyCoor
                     line_number=0,
                     line_content="",
                     is_dev_dependency=bool(metadata.get("dev", False)),
+                    is_direct_dependency=is_direct,
                 )
             )
 
     # lockfile v1 fallback
     top_dependencies = parsed.get("dependencies")
     if isinstance(top_dependencies, dict):
-        deps.extend(_parse_npm_dependency_tree(top_dependencies, manifest_path))
+        deps.extend(_parse_npm_dependency_tree(top_dependencies, manifest_path, is_direct_level=True))
 
     return deps
 
 
-def _parse_npm_dependency_tree(tree: dict[str, Any], manifest_path: str) -> list[DependencyCoordinate]:
+def _parse_npm_dependency_tree(
+    tree: dict[str, Any],
+    manifest_path: str,
+    *,
+    is_direct_level: bool,
+) -> list[DependencyCoordinate]:
     deps: list[DependencyCoordinate] = []
 
     for name, metadata in tree.items():
@@ -536,24 +748,41 @@ def _parse_npm_dependency_tree(tree: dict[str, Any], manifest_path: str) -> list
             deps.append(
                 DependencyCoordinate(
                     ecosystem="npm",
-                    name=str(name).strip(),
+                    name=_normalized_lower_name(str(name)),
                     version=version,
                     manifest_path=manifest_path,
                     line_number=0,
                     line_content="",
                     is_dev_dependency=bool(metadata.get("dev", False)),
+                    is_direct_dependency=is_direct_level,
                 )
             )
         nested = metadata.get("dependencies")
         if isinstance(nested, dict):
-            deps.extend(_parse_npm_dependency_tree(nested, manifest_path))
+            deps.extend(_parse_npm_dependency_tree(nested, manifest_path, is_direct_level=False))
 
     return deps
 
 
-def _parse_pnpm_lock(content: str, manifest_path: str) -> list[DependencyCoordinate]:
+def _parse_pnpm_lock(repo_path: str, content: str, manifest_path: str) -> list[DependencyCoordinate]:
     deps: list[DependencyCoordinate] = []
     parsed = yaml.safe_load(content) or {}
+    direct_main: set[str] = set()
+    direct_dev: set[str] = set()
+
+    importers = parsed.get("importers")
+    if isinstance(importers, dict):
+        for importer_data in importers.values():
+            if not isinstance(importer_data, dict):
+                continue
+            direct_main.update(_package_names_from_mapping(importer_data.get("dependencies")))
+            direct_main.update(_package_names_from_mapping(importer_data.get("optionalDependencies")))
+            direct_dev.update(_package_names_from_mapping(importer_data.get("devDependencies")))
+
+    if not direct_main and not direct_dev:
+        file_main, file_dev = _load_package_json_direct_dependencies(repo_path, manifest_path)
+        direct_main.update(file_main)
+        direct_dev.update(file_dev)
 
     packages = parsed.get("packages")
     if isinstance(packages, dict):
@@ -561,16 +790,21 @@ def _parse_pnpm_lock(content: str, manifest_path: str) -> list[DependencyCoordin
             name, version = _split_pnpm_package_key(str(package_key))
             if not name or not version:
                 continue
+            lowered_name = _normalized_lower_name(name)
+            is_direct: bool | None = None
+            if direct_main or direct_dev:
+                is_direct = lowered_name in direct_main or lowered_name in direct_dev
             is_dev = bool(isinstance(metadata, dict) and metadata.get("dev", False))
             deps.append(
                 DependencyCoordinate(
                     ecosystem="npm",
-                    name=name,
+                    name=lowered_name,
                     version=version,
                     manifest_path=manifest_path,
                     line_number=0,
                     line_content="",
                     is_dev_dependency=is_dev,
+                    is_direct_dependency=is_direct,
                 )
             )
 
@@ -578,7 +812,6 @@ def _parse_pnpm_lock(content: str, manifest_path: str) -> list[DependencyCoordin
         return deps
 
     # Fallback for lockfiles that only expose importers with pinned dependency versions.
-    importers = parsed.get("importers")
     if not isinstance(importers, dict):
         return deps
 
@@ -595,15 +828,17 @@ def _parse_pnpm_lock(content: str, manifest_path: str) -> list[DependencyCoordin
                 clean_version = dep_version.strip()
                 if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.\-]+)?", clean_version):
                     continue
+                lowered_name = _normalized_lower_name(str(dep_name))
                 deps.append(
                     DependencyCoordinate(
                         ecosystem="npm",
-                        name=str(dep_name),
+                        name=lowered_name,
                         version=clean_version,
                         manifest_path=manifest_path,
                         line_number=0,
                         line_content="",
                         is_dev_dependency=(section == "devDependencies"),
+                        is_direct_dependency=True,
                     )
                 )
 
@@ -671,16 +906,18 @@ def _parse_go_mod(content: str, manifest_path: str) -> list[DependencyCoordinate
                 manifest_path=manifest_path,
                 line_number=idx,
                 line_content=raw_line.strip(),
+                is_direct_dependency="// indirect" not in raw_line,
             )
         )
 
     return deps
 
 
-def _parse_cargo_lock(content: str, manifest_path: str) -> list[DependencyCoordinate]:
+def _parse_cargo_lock(repo_path: str, content: str, manifest_path: str) -> list[DependencyCoordinate]:
     deps: list[DependencyCoordinate] = []
     block: dict[str, str] = {}
     block_start_line = 0
+    direct_main, direct_dev = _load_cargo_direct_dependencies(repo_path, manifest_path)
 
     def flush_block() -> None:
         if not block:
@@ -689,14 +926,19 @@ def _parse_cargo_lock(content: str, manifest_path: str) -> list[DependencyCoordi
         version = block.get("version", "").strip().strip('"')
         if not name or not version:
             return
+        lowered_name = _normalized_lower_name(name)
+        is_direct: bool | None = None
+        if direct_main or direct_dev:
+            is_direct = lowered_name in direct_main or lowered_name in direct_dev
         deps.append(
             DependencyCoordinate(
                 ecosystem="cratesio",
-                name=name,
+                name=lowered_name,
                 version=version,
                 manifest_path=manifest_path,
                 line_number=block_start_line,
                 line_content=f'{name} = "{version}"',
+                is_direct_dependency=is_direct,
             )
         )
 
@@ -733,19 +975,231 @@ def _parse_manifest_file(repo_path: str, manifest_path: str) -> list[DependencyC
     if lowered_name.startswith("requirements") and lowered_name.endswith(".txt"):
         return _parse_requirements(content, manifest_path)
     if name == "poetry.lock":
-        return _parse_poetry_lock(content, manifest_path)
+        return _parse_poetry_lock(repo_path, content, manifest_path)
     if name == "package-lock.json":
-        return _parse_package_lock(content, manifest_path)
+        return _parse_package_lock(repo_path, content, manifest_path)
     if name in {"pnpm-lock.yaml", "pnpm-lock.yml"}:
-        return _parse_pnpm_lock(content, manifest_path)
+        return _parse_pnpm_lock(repo_path, content, manifest_path)
     if name == "go.mod":
         return _parse_go_mod(content, manifest_path)
     if name == "Cargo.lock":
-        return _parse_cargo_lock(content, manifest_path)
+        return _parse_cargo_lock(repo_path, content, manifest_path)
     return []
 
 
-def _build_description(advisory: DependencyAdvisory) -> str:
+def _project_root_from_manifest(manifest_path: str) -> str:
+    rel_dir = os.path.dirname(manifest_path)
+    return rel_dir if rel_dir else "."
+
+
+def _iter_source_files(repo_path: str, project_root: str, extensions: set[str]) -> list[str]:
+    abs_root = os.path.join(repo_path, project_root)
+    if not os.path.isdir(abs_root):
+        return []
+
+    source_files: list[str] = []
+    for root, dirs, filenames in os.walk(abs_root):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+        for filename in filenames:
+            _, ext = os.path.splitext(filename)
+            if ext.lower() not in extensions:
+                continue
+            abs_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(abs_path, repo_path)
+            source_files.append(rel_path)
+    return sorted(source_files)
+
+
+def _record_import(import_map: dict[str, set[str]], import_name: str, file_path: str) -> None:
+    if not import_name:
+        return
+    import_map.setdefault(import_name, set()).add(file_path)
+
+
+def _collect_python_usage(repo_path: str, project_root: str) -> tuple[ImportUsage, list[str]]:
+    usage = ImportUsage(language="python")
+    errors: list[str] = []
+    source_files = _iter_source_files(repo_path, project_root, PYTHON_SOURCE_EXTENSIONS)
+    usage.files_analyzed = len(source_files)
+
+    for rel_path in source_files:
+        abs_path = os.path.join(repo_path, rel_path)
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="ignore") as handle:
+                content = handle.read()
+            tree = ast.parse(content, filename=rel_path)
+        except (OSError, SyntaxError, ValueError) as exc:
+            errors.append(f"Reachability parse failed for {rel_path}: {exc}")
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    import_name = alias.name.split(".", 1)[0].strip().lower()
+                    _record_import(usage.import_map, import_name, rel_path)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level != 0 or not node.module:
+                    continue
+                import_name = node.module.split(".", 1)[0].strip().lower()
+                _record_import(usage.import_map, import_name, rel_path)
+
+    return usage, errors
+
+
+def _extract_js_package_name(specifier: str) -> str:
+    value = specifier.strip()
+    if not value or value.startswith(".") or value.startswith("/"):
+        return ""
+    if value.startswith("@"):
+        parts = value.split("/")
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1]}".lower()
+        return value.lower()
+    return value.split("/", 1)[0].lower()
+
+
+def _collect_javascript_usage(repo_path: str, project_root: str) -> tuple[ImportUsage, list[str]]:
+    usage = ImportUsage(language="javascript")
+    errors: list[str] = []
+    source_files = _iter_source_files(repo_path, project_root, JAVASCRIPT_SOURCE_EXTENSIONS)
+    usage.files_analyzed = len(source_files)
+
+    for rel_path in source_files:
+        abs_path = os.path.join(repo_path, rel_path)
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="ignore") as handle:
+                content = handle.read()
+        except OSError as exc:
+            errors.append(f"Reachability read failed for {rel_path}: {exc}")
+            continue
+
+        for pattern in JS_IMPORT_PATTERNS:
+            for match in pattern.finditer(content):
+                package_name = _extract_js_package_name(match.group(1))
+                _record_import(usage.import_map, package_name, rel_path)
+
+    return usage, errors
+
+
+def _python_import_candidates(dep_name: str) -> list[str]:
+    normalized = dep_name.strip().lower()
+    candidates: set[str] = set()
+
+    def add_candidate(value: str) -> None:
+        cleaned = value.strip().lower()
+        if cleaned:
+            candidates.add(cleaned)
+
+    add_candidate(normalized)
+    add_candidate(normalized.replace("-", "_"))
+    add_candidate(normalized.replace(".", "_"))
+    if normalized.startswith("python-"):
+        add_candidate(normalized[len("python-"):].replace("-", "_"))
+    for alias in PYPI_IMPORT_ALIASES.get(normalized, ()):
+        add_candidate(alias)
+
+    return sorted(candidates)
+
+
+def _import_candidates_for_dependency(dep: DependencyCoordinate) -> list[str]:
+    if dep.ecosystem == "pypi":
+        return _python_import_candidates(dep.name)
+    if dep.ecosystem == "npm":
+        return [dep.name.lower()]
+    return []
+
+
+def _exploitability_for_reachability(status: str) -> str:
+    if status == "reachable":
+        return "likely"
+    if status == "direct-unused":
+        return "potential"
+    if status == "transitive-only":
+        return "limited"
+    return "unknown"
+
+
+class DependencyReachabilityAnalyzer:
+    def __init__(self, repo_path: str):
+        self.repo_path = repo_path
+        self.errors: list[str] = []
+        self._usage_cache: dict[tuple[str, str], ImportUsage] = {}
+
+    def analyze(self, dependencies: list[DependencyCoordinate]) -> dict[tuple[str, str, str, str], DependencyReachability]:
+        findings: dict[tuple[str, str, str, str], DependencyReachability] = {}
+        for dep in dependencies:
+            key = (dep.ecosystem, dep.name, dep.version, dep.manifest_path)
+            findings[key] = self._classify(dep)
+        return findings
+
+    def _classify(self, dep: DependencyCoordinate) -> DependencyReachability:
+        language = REACHABILITY_SUPPORTED_ECOSYSTEMS.get(dep.ecosystem, "")
+        if not language:
+            return DependencyReachability(
+                status="unknown",
+                language="",
+                direct_dependency=dep.is_direct_dependency,
+            )
+
+        project_root = _project_root_from_manifest(dep.manifest_path)
+        usage = self._get_usage(language, project_root)
+        if usage.files_analyzed == 0:
+            return DependencyReachability(
+                status="unknown",
+                language=language,
+                direct_dependency=dep.is_direct_dependency,
+            )
+
+        matched_imports: list[str] = []
+        matched_files: set[str] = set()
+        for candidate in _import_candidates_for_dependency(dep):
+            files = usage.import_map.get(candidate, set())
+            if not files:
+                continue
+            matched_imports.append(candidate)
+            matched_files.update(files)
+
+        if matched_files:
+            return DependencyReachability(
+                status="reachable",
+                language=language,
+                direct_dependency=dep.is_direct_dependency,
+                imports=sorted(set(matched_imports)),
+                files=sorted(matched_files),
+            )
+
+        if dep.is_direct_dependency is False:
+            status = "transitive-only"
+        elif dep.is_direct_dependency is True:
+            status = "direct-unused"
+        else:
+            status = "unknown"
+
+        return DependencyReachability(
+            status=status,
+            language=language,
+            direct_dependency=dep.is_direct_dependency,
+        )
+
+    def _get_usage(self, language: str, project_root: str) -> ImportUsage:
+        cache_key = (language, project_root)
+        cached = self._usage_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        if language == "python":
+            usage, errors = _collect_python_usage(self.repo_path, project_root)
+        else:
+            usage, errors = _collect_javascript_usage(self.repo_path, project_root)
+        self.errors.extend(errors)
+        self._usage_cache[cache_key] = usage
+        return usage
+
+
+def _build_description(
+    advisory: DependencyAdvisory,
+    reachability: DependencyReachability | None = None,
+) -> str:
     dep = advisory.dependency
     summary = advisory.summary or "Known vulnerable dependency version"
     source = advisory.source.upper()
@@ -759,6 +1213,12 @@ def _build_description(advisory: DependencyAdvisory) -> str:
         extras.append(f"fixed in {', '.join(advisory.fixed_versions[:3])}")
     if advisory.aliases:
         extras.append(f"aliases: {', '.join(advisory.aliases[:3])}")
+    if reachability is not None:
+        extras.append(f"reachability: {reachability.status}")
+        if reachability.imports:
+            extras.append(f"imports: {', '.join(reachability.imports[:3])}")
+        if reachability.files:
+            extras.append(f"evidence: {', '.join(reachability.files[:2])}")
     if extras:
         description += f" ({'; '.join(extras)})"
 
@@ -809,6 +1269,9 @@ def run_dependency_scan(
         if key not in deduped:
             deduped[key] = dep
     dependencies = list(deduped.values())
+    reachability_analyzer = DependencyReachabilityAnalyzer(abs_repo)
+    reachability = reachability_analyzer.analyze(dependencies)
+    result.errors.extend(reachability_analyzer.errors)
 
     if advisory_provider is None:
         try:
@@ -832,6 +1295,15 @@ def run_dependency_scan(
 
     for advisory in advisories:
         dep = advisory.dependency
+        dep_key = (dep.ecosystem, dep.name, dep.version, dep.manifest_path)
+        dep_reachability = reachability.get(
+            dep_key,
+            DependencyReachability(
+                status="unknown",
+                language=REACHABILITY_SUPPORTED_ECOSYSTEMS.get(dep.ecosystem, ""),
+                direct_dependency=dep.is_direct_dependency,
+            ),
+        )
         severity = _severity_from_advisory(advisory)
         line_number = dep.line_number if dep.line_number > 0 else 0
         matched_value = f"{dep.ecosystem}|{dep.name}|{dep.version}|{advisory.advisory_id}"
@@ -848,9 +1320,24 @@ def run_dependency_scan(
                 file_path=dep.manifest_path,
                 line_number=line_number,
                 line_content=dep.line_content[:200],
-                description=_build_description(advisory),
+                description=_build_description(advisory, dep_reachability),
                 matched_text=f"{dep.name}@{dep.version}",
                 finding_id=finding_id,
+                metadata={
+                    "dependency_ecosystem": dep.ecosystem,
+                    "dependency_name": dep.name,
+                    "dependency_version": dep.version,
+                    "dependency_manifest": dep.manifest_path,
+                    "dependency_direct": dep.is_direct_dependency,
+                    "dependency_dev": dep.is_dev_dependency,
+                    "advisory_id": advisory.advisory_id,
+                    "advisory_source": advisory.source,
+                    "reachability": dep_reachability.status,
+                    "reachability_language": dep_reachability.language or None,
+                    "reachability_imports": dep_reachability.imports,
+                    "reachability_files": dep_reachability.files,
+                    "exploitability": _exploitability_for_reachability(dep_reachability.status),
+                },
             )
         )
 
@@ -859,6 +1346,18 @@ def run_dependency_scan(
         result.findings_suppressed = suppression_config.findings_suppressed
 
     return result
+
+
+def _dependency_reachability_counts(findings: list[PatternMatch]) -> dict[str, int]:
+    counts = {status: 0 for status in REACHABILITY_STATUSES}
+    for finding in findings:
+        if finding.rule_name != DEPENDENCY_RULE_NAME:
+            continue
+        status = str(finding.metadata.get("reachability", "unknown")).lower()
+        if status not in counts:
+            status = "unknown"
+        counts[status] += 1
+    return counts
 
 
 def _generate_text_report(result: ScanResult) -> str:
@@ -871,6 +1370,15 @@ def _generate_text_report(result: ScanResult) -> str:
         f"medium={result.medium_count} low={result.low_count} "
         f"manifests={result.files_scanned}"
     )
+    reachability_counts = _dependency_reachability_counts(result.findings)
+    if result.findings:
+        lines.append(
+            "Reachability: "
+            f"reachable={reachability_counts['reachable']} "
+            f"direct-unused={reachability_counts['direct-unused']} "
+            f"transitive-only={reachability_counts['transitive-only']} "
+            f"unknown={reachability_counts['unknown']}"
+        )
     if result.findings_suppressed > 0:
         lines.append(f"Suppressed findings: {result.findings_suppressed}")
     if result.errors:

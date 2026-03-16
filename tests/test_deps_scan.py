@@ -55,6 +55,7 @@ class DependencyScanTests(unittest.TestCase):
             self.assertEqual("requirements.txt", finding.file_path)
             self.assertEqual(1, finding.line_number)
             self.assertIn("CVE-2026-1111", finding.description)
+            self.assertEqual("unknown", finding.metadata["reachability"])
 
     def test_skip_dev_dependencies_omits_poetry_dev_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -144,6 +145,103 @@ category = "dev"
             self.assertEqual(Severity.MEDIUM, finding.severity)
             self.assertIn("@scope/pkg@1.2.3", finding.matched_text)
 
+    def test_python_dependency_reachability_is_marked_reachable_when_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            (base / "requirements.txt").write_text("requests==2.19.0\n", encoding="utf-8")
+            (base / "app.py").write_text("import requests\n", encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(
+                advisory_db,
+                advisories=[
+                    {
+                        "ecosystem": "pypi",
+                        "name": "requests",
+                        "version": "2.19.0",
+                        "id": "CVE-2026-6001",
+                        "summary": "Reachable requests issue",
+                        "severity": "HIGH",
+                    }
+                ],
+            )
+
+            result = run_dependency_scan(temp_dir, advisory_db_path=str(advisory_db))
+
+            self.assertEqual(1, result.total_count)
+            finding = result.findings[0]
+            self.assertEqual("reachable", finding.metadata["reachability"])
+            self.assertEqual("likely", finding.metadata["exploitability"])
+            self.assertIn("requests", finding.metadata["reachability_imports"])
+            self.assertIn("app.py", finding.metadata["reachability_files"])
+
+    def test_python_dependency_reachability_marks_direct_unused_when_not_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            (base / "requirements.txt").write_text("urllib3==1.25.0\n", encoding="utf-8")
+            (base / "app.py").write_text("import json\n", encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(
+                advisory_db,
+                advisories=[
+                    {
+                        "ecosystem": "pypi",
+                        "name": "urllib3",
+                        "version": "1.25.0",
+                        "id": "CVE-2026-6002",
+                        "summary": "Unused direct dependency issue",
+                        "severity": "HIGH",
+                    }
+                ],
+            )
+
+            result = run_dependency_scan(temp_dir, advisory_db_path=str(advisory_db))
+
+            self.assertEqual(1, result.total_count)
+            finding = result.findings[0]
+            self.assertEqual("direct-unused", finding.metadata["reachability"])
+            self.assertEqual([], finding.metadata["reachability_imports"])
+
+    def test_transitive_npm_dependency_is_marked_transitive_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            package_lock = {
+                "name": "demo-app",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "name": "demo-app",
+                        "version": "1.0.0",
+                        "dependencies": {"express": "4.18.2"},
+                    },
+                    "node_modules/express": {"version": "4.18.2"},
+                    "node_modules/body-parser": {"version": "1.20.2"},
+                },
+            }
+            (base / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+            (base / "src").mkdir()
+            (base / "src" / "index.js").write_text("import express from 'express';\n", encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(
+                advisory_db,
+                advisories=[
+                    {
+                        "ecosystem": "npm",
+                        "name": "body-parser",
+                        "version": "1.20.2",
+                        "id": "GHSA-body-parser",
+                        "summary": "Transitive package issue",
+                        "severity": "MEDIUM",
+                    }
+                ],
+            )
+
+            result = run_dependency_scan(temp_dir, advisory_db_path=str(advisory_db))
+
+            self.assertEqual(1, result.total_count)
+            finding = result.findings[0]
+            self.assertEqual("transitive-only", finding.metadata["reachability"])
+            self.assertEqual("limited", finding.metadata["exploitability"])
+
     def test_dependency_findings_can_be_suppressed_by_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)
@@ -198,6 +296,72 @@ category = "dev"
                     "--repo", temp_dir,
                     "--deps",
                     "--deps-advisory-db", str(advisory_db),
+                    "--fail-on", "high",
+                    "--json",
+                ])
+
+            self.assertEqual(1, exit_code)
+
+    def test_gate_deps_reachable_only_ignores_unused_dependency_vulnerability(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            (base / "requirements.txt").write_text("urllib3==1.25.0\n", encoding="utf-8")
+            (base / "app.py").write_text("import json\n", encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(
+                advisory_db,
+                advisories=[
+                    {
+                        "ecosystem": "pypi",
+                        "name": "urllib3",
+                        "version": "1.25.0",
+                        "id": "CVE-2026-7777",
+                        "summary": "Unused direct dependency vuln",
+                        "severity": "HIGH",
+                    }
+                ],
+            )
+
+            stdout_buffer = StringIO()
+            with redirect_stdout(stdout_buffer):
+                exit_code = gate_main([
+                    "--repo", temp_dir,
+                    "--deps",
+                    "--deps-advisory-db", str(advisory_db),
+                    "--deps-reachable-only",
+                    "--fail-on", "high",
+                    "--json",
+                ])
+
+            self.assertEqual(0, exit_code)
+
+    def test_gate_deps_reachable_only_fails_when_dependency_is_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            (base / "requirements.txt").write_text("urllib3==1.25.0\n", encoding="utf-8")
+            (base / "app.py").write_text("import urllib3\n", encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(
+                advisory_db,
+                advisories=[
+                    {
+                        "ecosystem": "pypi",
+                        "name": "urllib3",
+                        "version": "1.25.0",
+                        "id": "CVE-2026-7778",
+                        "summary": "Reachable dependency vuln",
+                        "severity": "HIGH",
+                    }
+                ],
+            )
+
+            stdout_buffer = StringIO()
+            with redirect_stdout(stdout_buffer):
+                exit_code = gate_main([
+                    "--repo", temp_dir,
+                    "--deps",
+                    "--deps-advisory-db", str(advisory_db),
+                    "--deps-reachable-only",
                     "--fail-on", "high",
                     "--json",
                 ])

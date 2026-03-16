@@ -67,7 +67,7 @@ v1.5.0
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
-- **Dependency Vulnerability Scanning**: Scan lockfiles/manifests and flag known vulnerable package versions via OSV or local advisory feeds
+- **Dependency Vulnerability Scanning**: Scan lockfiles/manifests, flag known vulnerable package versions, and classify Python/JS packages as `reachable`, `direct-unused`, `transitive-only`, or `unknown`
 - **OpenClaw CVE Detection**: Detects 15 OpenClaw CVEs across gateway, runtime, UI, and packaging attack surfaces
 - **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
 
@@ -137,6 +137,8 @@ python3 -m coyote deps --repo /path/to/your/repo --fail-on high
 # Offline mode with local advisory JSON file
 python3 -m coyote deps --repo /path/to/your/repo --advisory-db ./advisories.json
 ```
+
+Dependency findings now include static reachability metadata for Python and JS/TS projects, and the text report summarizes how many vulnerable packages are imported versus only present in the lock graph.
 
 ### AI Agent Security Analysis
 
@@ -231,6 +233,7 @@ Options:
   --deps-timeout N       OSV request timeout seconds (default: 20)
   --deps-batch-size N    OSV batch query size (default: 100)
   --deps-skip-dev        Skip development dependencies
+  --deps-reachable-only  Fail only on dependency findings whose vulnerable packages are statically reachable
   --sarif FILE           Output SARIF to FILE (use - for stdout)
   --output FILE          Write gate summary JSON to FILE
 ```
@@ -668,7 +671,12 @@ Supported files:
 3. Vulnerability advisories are matched via:
    - OSV API (default)
    - Local advisory JSON file (`--advisory-db`) for offline/air-gapped use
-4. Findings are emitted with stable IDs and flow through the same baseline/gate/SARIF pipeline.
+4. Python and JS/TS repos get a static import pass that classifies vulnerable packages as:
+   - `reachable`: imported from analyzed source files
+   - `direct-unused`: directly declared but not imported
+   - `transitive-only`: present only through the lockfile graph
+   - `unknown`: unsupported ecosystem or no analyzable source files
+5. Findings are emitted with stable IDs and flow through the same baseline/gate/SARIF pipeline.
 
 ### Usage
 
@@ -681,6 +689,9 @@ python3 -m coyote deps --repo /path/to/repo --advisory-db ./advisories.json
 
 # CI-friendly exit behavior
 python3 -m coyote deps --repo /path/to/repo --fail-on high --fail-on-errors
+
+# Gate only on reachable dependency vulns
+python3 -m coyote gate --repo /path/to/repo --deps --deps-reachable-only --fail-on high
 ```
 
 ### Local Advisory JSON Format
@@ -752,7 +763,7 @@ Coyote recognizes 11 predefined exploit chains:
 | Auth Token | Network Weakness | HIGH | Session hijacking via token + network bypass |
 | Gateway Exploit | WebSocket Issue | CRITICAL | Full RCE via agent hijack (CVE-2026-25253) |
 | Code Injection | Network Weakness | HIGH | Data exfiltration via injected code |
-| Supply Chain | Code Injection | CRITICAL | RCE via vulnerable dependency plus application injection sink |
+| Supply Chain | Code Injection | CRITICAL | RCE via reachable vulnerable dependency plus application injection sink |
 | Sensitive File | Infrastructure | HIGH | Network reconnaissance from config exposure |
 | Auth Token | Code Injection | CRITICAL | Privilege escalation via token + injection |
 | Credential | Code Injection | CRITICAL | Full compromise via authenticated code execution |
