@@ -588,6 +588,33 @@ def discover_dependency_files(repo_path: str) -> list[str]:
     return sorted(set(manifests))
 
 
+def collect_dependencies(repo_path: str, *, include_dev: bool = True) -> list[DependencyCoordinate]:
+    """Discover and parse all dependency manifests, returning deduplicated coordinates.
+
+    This is a lightweight wrapper around discover + parse that skips advisory
+    lookups and reachability analysis — suitable for SBOM generation and other
+    inventory-only workflows.
+    """
+    abs_repo = os.path.abspath(repo_path)
+    manifest_paths = discover_dependency_files(abs_repo)
+
+    coordinates: list[DependencyCoordinate] = []
+    for manifest_path in manifest_paths:
+        try:
+            coordinates.extend(_parse_manifest_file(abs_repo, manifest_path))
+        except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError):
+            continue
+
+    deduped: dict[tuple[str, str, str, str], DependencyCoordinate] = {}
+    for dep in coordinates:
+        if not include_dev and dep.is_dev_dependency:
+            continue
+        key = (dep.ecosystem, dep.name, dep.version, dep.manifest_path)
+        if key not in deduped:
+            deduped[key] = dep
+    return list(deduped.values())
+
+
 def _parse_requirements(content: str, manifest_path: str) -> list[DependencyCoordinate]:
     deps: list[DependencyCoordinate] = []
     pattern = re.compile(r"^\s*([A-Za-z0-9_.\-]+(?:\[[^\]]+\])?)\s*==\s*([^;\s]+)")

@@ -82,6 +82,7 @@ flowchart LR
 | `coyote/baseline.py` | Baseline save/load and diffing |
 | `coyote/history.py` | Git history scanning |
 | `coyote/notifications.py` | Slack/Discord notifications |
+| `coyote/sbom.py` | CycloneDX v1.5 SBOM generation |
 | `coyote/agents/*` | Agent analysis, diffing, policy |
 | `moltsec/*` | Standalone agent analysis package |
 

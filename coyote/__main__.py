@@ -5,6 +5,7 @@ Usage:
     python3 -m coyote scan [OPTIONS]        # Scan a repository
     python3 -m coyote gate [OPTIONS]        # Run CI gate checks
     python3 -m coyote deps [OPTIONS]        # Scan dependencies for known CVEs
+    python3 -m coyote sbom [OPTIONS]        # Generate CycloneDX SBOM
     python3 -m coyote agent [SUBCOMMAND]    # Analyze AI agents
     python3 -m coyote vps [SUBCOMMAND]      # Audit VPS security posture
     python3 -m coyote --repo /path          # Legacy: same as 'scan --repo'
@@ -38,6 +39,12 @@ def main():
             sys.argv = [sys.argv[0]] + sys.argv[2:]  # Remove 'deps' from argv
             from .deps import main as deps_main
             sys.exit(deps_main())
+
+        elif subcommand == "sbom":
+            # CycloneDX SBOM generation mode
+            sys.argv = [sys.argv[0]] + sys.argv[2:]  # Remove 'sbom' from argv
+            from .sbom import main as sbom_main
+            sys.exit(sbom_main())
 
         elif subcommand == "agent":
             # Agent security analysis mode
@@ -85,6 +92,7 @@ COMMANDS:
     scan        Scan a repository for security issues (secrets, credentials, etc.)
     gate        Run CI gate checks (scan + baseline diff + fail thresholds)
     deps        Scan dependency lockfiles/manifests for known vulnerabilities
+    sbom        Generate a CycloneDX v1.5 JSON Software Bill of Materials
     agent       Analyze OpenClaw/Moltbot AI agents for security risks
     vps         Audit VPS hardening and exposure (SSH/firewall/ports/fail2ban)
 
@@ -103,6 +111,10 @@ EXAMPLES:
     # Scan dependency manifests for known vulnerabilities
     python3 -m coyote deps --repo .
     python3 -m coyote deps --repo . --fail-on high
+
+    # Generate a CycloneDX SBOM
+    python3 -m coyote sbom --repo .
+    python3 -m coyote sbom --repo . --output bom.cdx.json --include-dev
 
     # Analyze an AI agent
     python3 -m coyote agent analyze ./my-agent.json

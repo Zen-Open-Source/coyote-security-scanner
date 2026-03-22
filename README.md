@@ -68,6 +68,7 @@ v1.5.0
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
 - **Dependency Vulnerability Scanning**: Scan lockfiles/manifests, flag known vulnerable package versions, and classify Python/JS packages as `reachable`, `direct-unused`, `transitive-only`, or `unknown`
+- **SBOM Generation**: Generate CycloneDX v1.5 JSON Software Bill of Materials from dependency manifests
 - **OpenClaw CVE Detection**: Detects 15 OpenClaw CVEs across gateway, runtime, UI, and packaging attack surfaces
 - **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
 
@@ -140,6 +141,16 @@ python3 -m coyote deps --repo /path/to/your/repo --advisory-db ./advisories.json
 
 Dependency findings now include static reachability metadata for Python and JS/TS projects, and the text report summarizes how many vulnerable packages are imported versus only present in the lock graph.
 
+### SBOM Generation
+
+```bash
+# Generate a CycloneDX SBOM to stdout
+python3 -m coyote sbom --repo /path/to/your/repo
+
+# Write SBOM to a file (include dev dependencies)
+python3 -m coyote sbom --repo . --output bom.cdx.json --include-dev
+```
+
 ### AI Agent Security Analysis
 
 ```bash
@@ -174,12 +185,13 @@ python3 -m coyote agent secure-langflow /path/to/langflow
 
 ### Commands
 
-Coyote has five main commands:
+Coyote has six main commands:
 
 ```bash
 python3 -m coyote scan [OPTIONS]    # Repository scanning
 python3 -m coyote gate [OPTIONS]    # CI gate (scan + baseline diff + fail thresholds)
 python3 -m coyote deps [OPTIONS]    # Dependency vulnerability scanning
+python3 -m coyote sbom [OPTIONS]    # CycloneDX SBOM generation
 python3 -m coyote agent [COMMAND]   # AI agent analysis
 python3 -m coyote vps [COMMAND]     # VPS hardening audit
 ```
@@ -719,6 +731,53 @@ python3 -m coyote gate --repo /path/to/repo --deps --deps-reachable-only --fail-
 - name: Coyote Gate
   run: |
     python3 -m coyote gate --repo . --deps --fail-on high --fail-on-new high
+```
+
+---
+
+## SBOM Generation
+
+Generate a [CycloneDX](https://cyclonedx.org/) v1.5 JSON Software Bill of Materials from your dependency manifests. The SBOM is a pure component inventory (no vulnerability data) and pairs with the existing `deps` and `gate` commands for compliance workflows.
+
+Supported manifests: `requirements*.txt`, `poetry.lock`, `package-lock.json`, `pnpm-lock.yaml`, `go.mod`, `Cargo.lock`.
+
+### Usage
+
+```bash
+# Print SBOM to stdout
+python3 -m coyote sbom --repo /path/to/repo
+
+# Write to a file
+python3 -m coyote sbom --repo . --output bom.cdx.json
+
+# Include development dependencies
+python3 -m coyote sbom --repo . --output bom.cdx.json --include-dev
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--repo PATH` | Path to repository (default: `.`) |
+| `--output FILE` | Write SBOM to FILE instead of stdout (convention: `.cdx.json`) |
+| `--include-dev` | Include development dependencies (excluded by default) |
+
+### Output Format
+
+The output is a CycloneDX v1.5 JSON document containing:
+- **metadata** — timestamp, tool info, and root component name
+- **components** — one entry per dependency with name, version, PURL, scope (`required` / `optional`), and Coyote-specific properties (`coyote:ecosystem`, `coyote:manifest`, `coyote:directDependency`)
+
+Components are sorted deterministically by `(ecosystem, name, version)`.
+
+### Programmatic Usage
+
+```python
+from coyote.sbom import generate_sbom
+
+sbom = generate_sbom("/path/to/repo", include_dev=False)
+print(sbom["bomFormat"])   # "CycloneDX"
+print(len(sbom["components"]))
 ```
 
 ---
@@ -1758,6 +1817,7 @@ coyote-repo-scanner/
 │   ├── baseline.py        # Scan diffing/baseline
 │   ├── entropy.py         # Entropy-based detection
 │   ├── deps.py            # Dependency vulnerability scanning
+│   ├── sbom.py            # CycloneDX SBOM generation
 │   ├── history.py         # Git history scanning
 │   ├── suppress.py        # Finding suppression
 │   ├── notifications.py   # Webhook notifications
