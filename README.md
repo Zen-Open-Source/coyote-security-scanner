@@ -93,8 +93,8 @@ v1.5.0
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/coyote-repo-scanner.git
-cd coyote-repo-scanner
+git clone https://github.com/Zen-Open-Source/coyote-security-scanner.git
+cd coyote-security-scanner
 
 # Install dependencies
 pip install -r requirements.txt
