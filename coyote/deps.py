@@ -31,6 +31,8 @@ from .suppress import SuppressionConfig, load_suppression_config
 
 
 DEPENDENCY_RULE_NAME = "Dependency Vulnerability"
+COMPROMISED_DEPENDENCY_RULE_NAME = "Compromised Dependency Release"
+SUPPLY_CHAIN_IOC_RULE_NAME = "Supply Chain IOC"
 
 SUPPORTED_MANIFESTS = {
     "poetry.lock",
@@ -94,6 +96,30 @@ JS_IMPORT_PATTERNS = [
     re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)"""),
     re.compile(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)"""),
 ]
+
+AXIOS_SUPPLY_CHAIN_INCIDENT_ID = "AXIOS-NPM-COMPROMISE-2026-03-31"
+AXIOS_SUPPLY_CHAIN_WINDOW_START = "2026-03-31T00:21:58Z"
+AXIOS_SUPPLY_CHAIN_WINDOW_END = "2026-03-31T03:40:46Z"
+AXIOS_COMPROMISED_RELEASES: dict[tuple[str, str, str], dict[str, str]] = {
+    ("npm", "axios", "1.14.1"): {
+        "published_at": "2026-03-31T00:21:58Z",
+        "safe_version": "1.14.0",
+        "summary": (
+            "Compromised npm release published during the March 31, 2026 maintainer "
+            "credential takeover."
+        ),
+    },
+    ("npm", "axios", "0.30.4"): {
+        "published_at": "2026-03-31T01:00:57Z",
+        "safe_version": "0.30.3",
+        "summary": (
+            "Compromised npm release published during the March 31, 2026 maintainer "
+            "credential takeover."
+        ),
+    },
+}
+AXIOS_IOC_PACKAGES = {"plain-crypto-js"}
+AXIOS_IOC_DOMAIN = "sfrclak.com:8000"
 
 
 @dataclass(frozen=True)
@@ -1252,6 +1278,138 @@ def _build_description(
     return description
 
 
+def _dependency_metadata(
+    dep: DependencyCoordinate,
+    dep_reachability: DependencyReachability,
+) -> dict[str, object]:
+    return {
+        "dependency_ecosystem": dep.ecosystem,
+        "dependency_name": dep.name,
+        "dependency_version": dep.version,
+        "dependency_manifest": dep.manifest_path,
+        "dependency_direct": dep.is_direct_dependency,
+        "dependency_dev": dep.is_dev_dependency,
+        "reachability": dep_reachability.status,
+        "reachability_language": dep_reachability.language or None,
+        "reachability_imports": dep_reachability.imports,
+        "reachability_files": dep_reachability.files,
+        "exploitability": _exploitability_for_reachability(dep_reachability.status),
+    }
+
+
+def _default_reachability(dep: DependencyCoordinate) -> DependencyReachability:
+    return DependencyReachability(
+        status="unknown",
+        language=REACHABILITY_SUPPORTED_ECOSYSTEMS.get(dep.ecosystem, ""),
+        direct_dependency=dep.is_direct_dependency,
+    )
+
+
+def _build_supply_chain_compromise_findings(
+    dependencies: list[DependencyCoordinate],
+    reachability: dict[tuple[str, str, str, str], DependencyReachability],
+) -> list[PatternMatch]:
+    findings: list[PatternMatch] = []
+
+    for dep in dependencies:
+        dep_key = (dep.ecosystem, dep.name, dep.version, dep.manifest_path)
+        dep_reachability = reachability.get(dep_key, _default_reachability(dep))
+        line_number = dep.line_number if dep.line_number > 0 else 0
+        base_metadata = _dependency_metadata(dep, dep_reachability)
+
+        compromise = AXIOS_COMPROMISED_RELEASES.get((dep.ecosystem, dep.name, dep.version))
+        if compromise is not None:
+            published_at = compromise["published_at"]
+            safe_version = compromise["safe_version"]
+            description = (
+                f"{AXIOS_SUPPLY_CHAIN_INCIDENT_ID}: {dep.name}@{dep.version} is a compromised "
+                f"npm release published on {published_at} during the March 31, 2026 maintainer "
+                f"account takeover (incident window {AXIOS_SUPPLY_CHAIN_WINDOW_START} to "
+                f"{AXIOS_SUPPLY_CHAIN_WINDOW_END}; reachability: {dep_reachability.status})."
+            )
+            finding_id = generate_finding_id(
+                COMPROMISED_DEPENDENCY_RULE_NAME,
+                dep.manifest_path,
+                line_number,
+                f"{dep.ecosystem}|{dep.name}|{dep.version}|{AXIOS_SUPPLY_CHAIN_INCIDENT_ID}",
+            )
+            findings.append(
+                PatternMatch(
+                    rule_name=COMPROMISED_DEPENDENCY_RULE_NAME,
+                    severity=Severity.HIGH,
+                    file_path=dep.manifest_path,
+                    line_number=line_number,
+                    line_content=dep.line_content[:200],
+                    description=description,
+                    matched_text=f"{dep.name}@{dep.version}",
+                    finding_id=finding_id,
+                    remediation=(
+                        f"Treat this as a confirmed compromise. Replace {dep.name}@{dep.version} "
+                        f"with a trusted release ({safe_version} on this branch or another vetted "
+                        f"maintainer-approved version), regenerate lockfiles, reinstall from a "
+                        f"clean environment, and review installs performed between "
+                        f"{AXIOS_SUPPLY_CHAIN_WINDOW_START} and {AXIOS_SUPPLY_CHAIN_WINDOW_END}."
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "campaign_id": AXIOS_SUPPLY_CHAIN_INCIDENT_ID,
+                        "threat_source": "built-in-intel",
+                        "supply_chain_ioc_type": "compromised_release",
+                        "incident_window_start": AXIOS_SUPPLY_CHAIN_WINDOW_START,
+                        "incident_window_end": AXIOS_SUPPLY_CHAIN_WINDOW_END,
+                        "published_at": published_at,
+                        "safe_version": safe_version,
+                        "execution_path": "install-time",
+                    },
+                )
+            )
+
+        if dep.ecosystem == "npm" and dep.name in AXIOS_IOC_PACKAGES:
+            description = (
+                f"{AXIOS_SUPPLY_CHAIN_INCIDENT_ID} IOC: {dep.name}@{dep.version} appeared in the "
+                f"Axios March 31, 2026 compromise chain. Axios triage reported that lockfile "
+                f"evidence for {dep.name} is more reliable than inspecting node_modules because the "
+                f"payload self-deletes after install."
+            )
+            finding_id = generate_finding_id(
+                SUPPLY_CHAIN_IOC_RULE_NAME,
+                dep.manifest_path,
+                line_number,
+                f"{dep.ecosystem}|{dep.name}|{dep.version}|{AXIOS_SUPPLY_CHAIN_INCIDENT_ID}",
+            )
+            findings.append(
+                PatternMatch(
+                    rule_name=SUPPLY_CHAIN_IOC_RULE_NAME,
+                    severity=Severity.HIGH,
+                    file_path=dep.manifest_path,
+                    line_number=line_number,
+                    line_content=dep.line_content[:200],
+                    description=description,
+                    matched_text=f"{dep.name}@{dep.version}",
+                    finding_id=finding_id,
+                    remediation=(
+                        f"Treat {dep.name} as a compromise indicator. Rebuild lockfiles from a "
+                        f"trusted source, reinstall dependencies from a clean environment, rotate "
+                        f"any secrets exposed on affected hosts, and review outbound connections to "
+                        f"{AXIOS_IOC_DOMAIN} during or after installation."
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "campaign_id": AXIOS_SUPPLY_CHAIN_INCIDENT_ID,
+                        "threat_source": "built-in-intel",
+                        "supply_chain_ioc_type": "malicious_transitive_package",
+                        "incident_window_start": AXIOS_SUPPLY_CHAIN_WINDOW_START,
+                        "incident_window_end": AXIOS_SUPPLY_CHAIN_WINDOW_END,
+                        "ioc_domain": AXIOS_IOC_DOMAIN,
+                        "registry_placeholder_version": "0.0.1-security.0",
+                        "execution_path": "install-time",
+                    },
+                )
+            )
+
+    return findings
+
+
 def run_dependency_scan(
     repo_path: str,
     *,
@@ -1320,17 +1478,12 @@ def run_dependency_scan(
         advisories, advisory_errors = [], []
     result.errors.extend(advisory_errors)
 
+    result.findings.extend(_build_supply_chain_compromise_findings(dependencies, reachability))
+
     for advisory in advisories:
         dep = advisory.dependency
         dep_key = (dep.ecosystem, dep.name, dep.version, dep.manifest_path)
-        dep_reachability = reachability.get(
-            dep_key,
-            DependencyReachability(
-                status="unknown",
-                language=REACHABILITY_SUPPORTED_ECOSYSTEMS.get(dep.ecosystem, ""),
-                direct_dependency=dep.is_direct_dependency,
-            ),
-        )
+        dep_reachability = reachability.get(dep_key, _default_reachability(dep))
         severity = _severity_from_advisory(advisory)
         line_number = dep.line_number if dep.line_number > 0 else 0
         matched_value = f"{dep.ecosystem}|{dep.name}|{dep.version}|{advisory.advisory_id}"
@@ -1357,19 +1510,9 @@ def run_dependency_scan(
                 finding_id=finding_id,
                 remediation=dep_remediation,
                 metadata={
-                    "dependency_ecosystem": dep.ecosystem,
-                    "dependency_name": dep.name,
-                    "dependency_version": dep.version,
-                    "dependency_manifest": dep.manifest_path,
-                    "dependency_direct": dep.is_direct_dependency,
-                    "dependency_dev": dep.is_dev_dependency,
+                    **_dependency_metadata(dep, dep_reachability),
                     "advisory_id": advisory.advisory_id,
                     "advisory_source": advisory.source,
-                    "reachability": dep_reachability.status,
-                    "reachability_language": dep_reachability.language or None,
-                    "reachability_imports": dep_reachability.imports,
-                    "reachability_files": dep_reachability.files,
-                    "exploitability": _exploitability_for_reachability(dep_reachability.status),
                 },
             )
         )

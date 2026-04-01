@@ -64,6 +64,8 @@ RULE_CATEGORY_MAP: dict[str, FindingCategory] = {
     "dangerouslySetInnerHTML": FindingCategory.CODE_INJECTION,
     # SUPPLY_CHAIN
     "Dependency Vulnerability": FindingCategory.SUPPLY_CHAIN,
+    "Compromised Dependency Release": FindingCategory.SUPPLY_CHAIN,
+    "Supply Chain IOC": FindingCategory.SUPPLY_CHAIN,
     # INFRASTRUCTURE
     "Hardcoded Internal IP": FindingCategory.INFRASTRUCTURE,
     "Security Debt Marker": FindingCategory.INFRASTRUCTURE,

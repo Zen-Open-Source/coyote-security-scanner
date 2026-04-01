@@ -9,7 +9,12 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from coyote.deps import DEPENDENCY_RULE_NAME, run_dependency_scan
+from coyote.deps import (
+    COMPROMISED_DEPENDENCY_RULE_NAME,
+    DEPENDENCY_RULE_NAME,
+    SUPPLY_CHAIN_IOC_RULE_NAME,
+    run_dependency_scan,
+)
 from coyote.gate import main as gate_main
 from coyote.patterns import Severity
 
@@ -20,6 +25,66 @@ def _write_local_advisory_db(path: Path, advisories: list[dict[str, object]]) ->
 
 
 class DependencyScanTests(unittest.TestCase):
+    def test_compromised_axios_release_is_flagged_without_advisory_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            package_lock = {
+                "name": "demo-app",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "name": "demo-app",
+                        "version": "1.0.0",
+                        "dependencies": {"axios": "1.14.1"},
+                    },
+                    "node_modules/axios": {"version": "1.14.1"},
+                },
+            }
+            (base / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+            (base / "src").mkdir()
+            (base / "src" / "index.js").write_text("import axios from 'axios';\n", encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(advisory_db, advisories=[])
+
+            result = run_dependency_scan(temp_dir, advisory_db_path=str(advisory_db))
+
+            findings = [f for f in result.findings if f.rule_name == COMPROMISED_DEPENDENCY_RULE_NAME]
+            self.assertEqual(1, len(findings))
+            finding = findings[0]
+            self.assertEqual(Severity.HIGH, finding.severity)
+            self.assertIn("axios@1.14.1", finding.matched_text)
+            self.assertIn("March 31, 2026", finding.description)
+            self.assertEqual("install-time", finding.metadata["execution_path"])
+
+    def test_plain_crypto_js_ioc_is_flagged_without_reachability(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            package_lock = {
+                "name": "demo-app",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "name": "demo-app",
+                        "version": "1.0.0",
+                        "dependencies": {"axios": "1.14.0"},
+                    },
+                    "node_modules/axios": {"version": "1.14.0"},
+                    "node_modules/plain-crypto-js": {"version": "0.0.1-security.0"},
+                },
+            }
+            (base / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(advisory_db, advisories=[])
+
+            result = run_dependency_scan(temp_dir, advisory_db_path=str(advisory_db))
+
+            findings = [f for f in result.findings if f.rule_name == SUPPLY_CHAIN_IOC_RULE_NAME]
+            self.assertEqual(1, len(findings))
+            finding = findings[0]
+            self.assertEqual(Severity.HIGH, finding.severity)
+            self.assertIn("plain-crypto-js", finding.description)
+            self.assertIn("sfrclak.com:8000", finding.remediation)
+
     def test_requirements_scan_finds_pinned_vulnerable_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)
@@ -354,6 +419,39 @@ category = "dev"
                     }
                 ],
             )
+
+            stdout_buffer = StringIO()
+            with redirect_stdout(stdout_buffer):
+                exit_code = gate_main([
+                    "--repo", temp_dir,
+                    "--deps",
+                    "--deps-advisory-db", str(advisory_db),
+                    "--deps-reachable-only",
+                    "--fail-on", "high",
+                    "--json",
+                ])
+
+            self.assertEqual(1, exit_code)
+
+    def test_gate_deps_reachable_only_still_fails_on_supply_chain_ioc(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            package_lock = {
+                "name": "demo-app",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "name": "demo-app",
+                        "version": "1.0.0",
+                        "dependencies": {"axios": "1.14.0"},
+                    },
+                    "node_modules/axios": {"version": "1.14.0"},
+                    "node_modules/plain-crypto-js": {"version": "0.0.1-security.0"},
+                },
+            }
+            (base / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+            advisory_db = base / "advisories.json"
+            _write_local_advisory_db(advisory_db, advisories=[])
 
             stdout_buffer = StringIO()
             with redirect_stdout(stdout_buffer):

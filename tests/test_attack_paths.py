@@ -54,6 +54,18 @@ class AttackPathTests(unittest.TestCase):
             any(path.title == "Vulnerable Dependency -> Exploit Chain" for path in result.paths)
         )
 
+    def test_compromised_dependency_release_maps_to_supply_chain_path(self) -> None:
+        findings = [
+            _finding("Compromised Dependency Release", Severity.HIGH, "dep003"),
+            _finding("Eval Usage (JS)", Severity.MEDIUM, "inj001"),
+        ]
+
+        result = AttackPathAnalyzer().analyze(findings)
+
+        self.assertTrue(
+            any(path.title == "Vulnerable Dependency -> Exploit Chain" for path in result.paths)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

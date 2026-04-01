@@ -67,7 +67,7 @@ v1.5.0
 - **Multiple Output Formats**: JSON, Markdown, and SARIF reports
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
-- **Dependency Vulnerability Scanning**: Scan lockfiles/manifests, flag known vulnerable package versions, and classify Python/JS packages as `reachable`, `direct-unused`, `transitive-only`, or `unknown`
+- **Dependency Vulnerability Scanning**: Scan lockfiles/manifests, flag known vulnerable package versions, classify Python/JS packages as `reachable`, `direct-unused`, `transitive-only`, or `unknown`, and detect built-in supply-chain threat intel such as the March 31, 2026 Axios npm compromise
 - **SBOM Generation**: Generate CycloneDX v1.5 JSON Software Bill of Materials from dependency manifests
 - **OpenClaw CVE Detection**: Detects 15 OpenClaw CVEs across gateway, runtime, UI, and packaging attack surfaces
 - **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
@@ -688,7 +688,8 @@ Supported files:
    - `direct-unused`: directly declared but not imported
    - `transitive-only`: present only through the lockfile graph
    - `unknown`: unsupported ecosystem or no analyzable source files
-5. Findings are emitted with stable IDs and flow through the same baseline/gate/SARIF pipeline.
+5. Built-in supply-chain intel also flags known compromised dependency releases and IOC packages even if registry advisory data lags or the bad release has already been yanked.
+6. Findings are emitted with stable IDs and flow through the same baseline/gate/SARIF pipeline.
 
 ### Usage
 
@@ -705,6 +706,10 @@ python3 -m coyote deps --repo /path/to/repo --fail-on high --fail-on-errors
 # Gate only on reachable dependency vulns
 python3 -m coyote gate --repo /path/to/repo --deps --deps-reachable-only --fail-on high
 ```
+
+Current built-in supply-chain intel includes the March 31, 2026 Axios npm compromise:
+- compromised releases: `axios@1.14.1`, `axios@0.30.4`
+- IOC package: `plain-crypto-js`
 
 ### Local Advisory JSON Format
 
