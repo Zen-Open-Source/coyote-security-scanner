@@ -22,6 +22,7 @@ from .patterns import (
     SMELL_PATTERNS,
     PatternMatch,
     Severity,
+    get_sensitive_file_remediation,
 )
 
 
@@ -323,6 +324,7 @@ class Scanner:
                     line_content="",
                     description=f"{desc}: {filename}",
                     finding_id=generate_finding_id("Sensitive File", rel_path, 0, filename),
+                    remediation=get_sensitive_file_remediation(filename),
                 ))
 
             # Glob match
@@ -336,6 +338,7 @@ class Scanner:
                         line_content="",
                         description=f"{desc}: {filename}",
                         finding_id=generate_finding_id("Sensitive File", rel_path, 0, filename),
+                        remediation=get_sensitive_file_remediation(filename),
                     ))
                     break  # one match per glob set is enough
 
@@ -376,6 +379,7 @@ class Scanner:
                             description=sp.description,
                             matched_text=masked,
                             finding_id=generate_finding_id(sp.name, rel_path, line_num, matched),
+                            remediation=sp.remediation,
                         ))
 
                 # Check smell patterns
@@ -392,6 +396,7 @@ class Scanner:
                             line_content=stripped[:200],
                             description=smell.description,
                             finding_id=generate_finding_id(smell.name, rel_path, line_num, smell_match.group(0)),
+                            remediation=smell.remediation,
                         ))
 
             # Entropy-based detection (if enabled)
@@ -411,6 +416,7 @@ class Scanner:
                         description=f"High-entropy string detected (entropy: {ef.entropy:.2f}, confidence: {ef.confidence})",
                         matched_text=ef.masked_value,
                         finding_id=generate_entropy_finding_id(ef),
+                        remediation="Investigate this high-entropy string. If it is a secret, rotate it and move it to environment variables.",
                     ))
 
     def _check_gitignore(self, result: ScanResult) -> None:
@@ -425,6 +431,7 @@ class Scanner:
                 line_content="",
                 description="No .gitignore file found - secrets may be accidentally committed",
                 finding_id=generate_finding_id("Missing .gitignore", ".gitignore", 0, ""),
+                remediation="Create a .gitignore file. See github.com/github/gitignore for templates.",
             ))
             return
 
@@ -449,6 +456,7 @@ class Scanner:
                 line_content="",
                 description=f".gitignore missing patterns: {', '.join(missing[:5])}{'...' if len(missing) > 5 else ''}",
                 finding_id=generate_finding_id("Incomplete .gitignore", ".gitignore", 0, ",".join(sorted(missing))),
+                remediation="Add the missing patterns to .gitignore to prevent accidental commits of sensitive files.",
             ))
 
     def _check_large_files(self, result: ScanResult) -> None:
@@ -474,6 +482,7 @@ class Scanner:
                             line_content="",
                             description=f"Large file ({size_mb:.1f} MB) shouldn't be in repository",
                             finding_id=generate_finding_id("Large File", rel_path, 0, str(size)),
+                            remediation="Remove this large file from the repository. Use Git LFS or external storage for large assets.",
                         ))
                 except OSError:
                     continue

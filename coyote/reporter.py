@@ -22,6 +22,7 @@ def _finding_to_dict(f) -> dict:
         "line": f.line_number,
         "description": f.description,
         "matched_text": f.matched_text or None,
+        "remediation": f.remediation or None,
         "metadata": f.metadata or None,
     }
 
@@ -98,6 +99,8 @@ def generate_markdown_report(result: ScanResult, commit_hash: str = "") -> str:
             lines.append(f"  - Location: {loc}")
             if f.matched_text:
                 lines.append(f"  - Match: `{f.matched_text}`")
+            if f.remediation:
+                lines.append(f"  - **Remediation:** {f.remediation}")
             if f.metadata:
                 metadata_parts = []
                 reachability = f.metadata.get("reachability")

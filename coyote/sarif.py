@@ -72,9 +72,16 @@ def _build_rule_definition(finding: PatternMatch) -> dict[str, Any]:
             "text": finding.description,
         },
         "help": {
-            "text": f"{finding.description}\n\nThis finding was detected by Coyote security scanner.",
-            "markdown": f"**{finding.rule_name}**\n\n{finding.description}\n\n"
-                       f"Detected by [Coyote](https://github.com/anthropics/coyote) security scanner.",
+            "text": (
+                f"{finding.description}"
+                f"{chr(10) + chr(10) + 'Remediation: ' + finding.remediation if finding.remediation else ''}"
+                f"\n\nThis finding was detected by Coyote security scanner."
+            ),
+            "markdown": (
+                f"**{finding.rule_name}**\n\n{finding.description}\n\n"
+                f"{'**Remediation:** ' + finding.remediation + chr(10) + chr(10) if finding.remediation else ''}"
+                f"Detected by [Coyote](https://github.com/anthropics/coyote) security scanner."
+            ),
         },
         "defaultConfiguration": {
             "level": _severity_to_sarif_level(severity),

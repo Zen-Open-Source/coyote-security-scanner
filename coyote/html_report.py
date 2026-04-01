@@ -94,6 +94,7 @@ def _build_findings_rows(result: ScanResult) -> str:
         if f.line_number > 0:
             loc += f":{f.line_number}"
         matched = html.escape(f.matched_text) if f.matched_text else "&mdash;"
+        remediation = html.escape(f.remediation) if f.remediation else "&mdash;"
         rows.append(
             f'<tr class="severity-{sev_class}" data-severity="{sev_class}">'
             f'<td><span class="badge badge-{sev_class}">{sev}</span></td>'
@@ -102,6 +103,7 @@ def _build_findings_rows(result: ScanResult) -> str:
             f"<td><code>{loc}</code></td>"
             f"<td>{html.escape(f.description)}</td>"
             f"<td><code>{matched}</code></td>"
+            f"<td>{remediation}</td>"
             f"</tr>"
         )
     return "\n".join(rows)
@@ -150,6 +152,7 @@ def _build_findings_section(result: ScanResult, rows: str) -> str:
           <th>Location</th>
           <th>Description</th>
           <th>Match</th>
+          <th>Remediation</th>
         </tr>
       </thead>
       <tbody>

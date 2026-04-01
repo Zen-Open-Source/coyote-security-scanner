@@ -1340,6 +1340,11 @@ def run_dependency_scan(
             line_number,
             matched_value,
         )
+        if advisory.fixed_versions:
+            dep_remediation = f"Upgrade {dep.name} to {advisory.fixed_versions[0]} or later."
+        else:
+            dep_remediation = f"No fix available yet. Monitor {advisory.advisory_id} for updates and consider alternative packages."
+
         result.findings.append(
             PatternMatch(
                 rule_name=DEPENDENCY_RULE_NAME,
@@ -1350,6 +1355,7 @@ def run_dependency_scan(
                 description=_build_description(advisory, dep_reachability),
                 matched_text=f"{dep.name}@{dep.version}",
                 finding_id=finding_id,
+                remediation=dep_remediation,
                 metadata={
                     "dependency_ecosystem": dep.ecosystem,
                     "dependency_name": dep.name,
