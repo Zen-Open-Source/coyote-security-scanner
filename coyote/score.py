@@ -203,8 +203,6 @@ def compute_scorecard(
     }
     for f in findings:
         cat = classify_finding(f)
-        if cat == "Dependencies":
-            continue  # deps come from the dedicated scan
         buckets.setdefault(cat, []).append(f)
 
     if deps_findings:
@@ -213,7 +211,7 @@ def compute_scorecard(
     # Build category scores
     active_categories: dict[str, bool] = {
         "Secrets": True,
-        "Dependencies": deps_enabled,
+        "Dependencies": deps_enabled or bool(buckets["Dependencies"]),
         "Code Quality": True,
         "Git History": history_enabled,
         "Config Hygiene": True,

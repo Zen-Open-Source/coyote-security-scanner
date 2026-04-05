@@ -66,6 +66,12 @@ RULE_CATEGORY_MAP: dict[str, FindingCategory] = {
     "Dependency Vulnerability": FindingCategory.SUPPLY_CHAIN,
     "Compromised Dependency Release": FindingCategory.SUPPLY_CHAIN,
     "Supply Chain IOC": FindingCategory.SUPPLY_CHAIN,
+    "Suspicious NPM Lifecycle Script": FindingCategory.SUPPLY_CHAIN,
+    "NPM Dependency Remote Source": FindingCategory.SUPPLY_CHAIN,
+    "NPM Registry Uses Plain HTTP": FindingCategory.SUPPLY_CHAIN,
+    "NPM Strict SSL Disabled": FindingCategory.SUPPLY_CHAIN,
+    "Node Lockfile Uses Plain HTTP": FindingCategory.SUPPLY_CHAIN,
+    "Node Lockfile Missing Integrity": FindingCategory.SUPPLY_CHAIN,
     # INFRASTRUCTURE
     "Hardcoded Internal IP": FindingCategory.INFRASTRUCTURE,
     "Security Debt Marker": FindingCategory.INFRASTRUCTURE,

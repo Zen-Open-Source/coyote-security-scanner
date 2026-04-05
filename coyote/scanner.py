@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -188,6 +189,58 @@ SHIELD_REQUIRED_DECISION_FIELDS = [
     "match_value",
     "reason",
 ]
+
+
+NPM_LIFECYCLE_SCRIPTS = {
+    "preinstall",
+    "install",
+    "postinstall",
+    "prepare",
+    "prepublish",
+    "prepublishonly",
+    "prepack",
+    "postpack",
+}
+NPM_DEPENDENCY_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies")
+NPM_HIGH_RISK_SCRIPT_INDICATORS = {
+    "network downloader",
+    "shell pipe",
+    "encoded payload",
+}
+NPM_SUSPICIOUS_SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "network downloader",
+        re.compile(
+            r"(?i)\b(?:curl|wget|invoke-webrequest|iwr|certutil(?:\.exe)?|bitsadmin(?:\.exe)?)\b"
+        ),
+    ),
+    (
+        "shell pipe",
+        re.compile(r"(?i)\|\s*(?:sh|bash|zsh|pwsh|powershell(?:\.exe)?)\b"),
+    ),
+    (
+        "inline shell",
+        re.compile(r"(?i)\b(?:sh|bash|zsh|pwsh|powershell(?:\.exe)?)\s+-c\b"),
+    ),
+    (
+        "encoded payload",
+        re.compile(
+            r"(?i)(?:base64\s+(?:-d|--decode)|frombase64string|powershell(?:\.exe)?\s+-enc(?:odedcommand)?)"
+        ),
+    ),
+    (
+        "inline interpreter",
+        re.compile(r"(?i)\b(?:node|python|python3|perl|ruby)\s+-e\b"),
+    ),
+)
+NPM_REMOTE_SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("tarball-url", re.compile(r"(?i)^https?://")),
+    ("git-url", re.compile(r"(?i)^git\+(?:https?|ssh)://")),
+    ("git-insecure", re.compile(r"(?i)^git://")),
+    ("github-shorthand", re.compile(r"(?i)^github:")),
+    ("gitlab-shorthand", re.compile(r"(?i)^gitlab:")),
+    ("bitbucket-shorthand", re.compile(r"(?i)^bitbucket:")),
+)
 
 
 class Scanner:
@@ -399,6 +452,8 @@ class Scanner:
                             remediation=smell.remediation,
                         ))
 
+            self._scan_npm_supply_chain_file(rel_path, content, lines, result)
+
             # Entropy-based detection (if enabled)
             if self.enable_entropy:
                 entropy_findings = scan_content_for_entropy(
@@ -418,6 +473,427 @@ class Scanner:
                         finding_id=generate_entropy_finding_id(ef),
                         remediation="Investigate this high-entropy string. If it is a secret, rotate it and move it to environment variables.",
                     ))
+
+    def _scan_npm_supply_chain_file(
+        self,
+        rel_path: str,
+        content: str,
+        lines: list[str],
+        result: ScanResult,
+    ) -> None:
+        """Apply npm-specific supply-chain heuristics to manifests and config."""
+        filename = Path(rel_path).name.lower()
+
+        if filename == "package.json":
+            self._scan_package_json_supply_chain(rel_path, content, lines, result)
+            return
+        if filename == ".npmrc":
+            self._scan_npmrc_supply_chain(rel_path, lines, result)
+            return
+        if filename == "package-lock.json":
+            self._scan_package_lock_supply_chain(rel_path, content, lines, result)
+            return
+        if filename in {"pnpm-lock.yaml", "pnpm-lock.yml"}:
+            self._scan_pnpm_lock_supply_chain(rel_path, content, lines, result)
+
+    def _scan_package_json_supply_chain(
+        self,
+        rel_path: str,
+        content: str,
+        lines: list[str],
+        result: ScanResult,
+    ) -> None:
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(parsed, dict):
+            return
+
+        scripts = parsed.get("scripts")
+        if isinstance(scripts, dict):
+            for script_name, command in scripts.items():
+                if not isinstance(script_name, str):
+                    continue
+                if script_name.lower() not in NPM_LIFECYCLE_SCRIPTS:
+                    continue
+                if not isinstance(command, str):
+                    continue
+
+                indicators = [
+                    label
+                    for label, pattern in NPM_SUSPICIOUS_SCRIPT_PATTERNS
+                    if pattern.search(command)
+                ]
+                if not indicators:
+                    continue
+
+                line_number = self._find_line_number(
+                    lines,
+                    rf'"{re.escape(script_name)}"\s*:',
+                )
+                line_content = self._line_at(lines, line_number, fallback=command)
+                severity = (
+                    Severity.HIGH
+                    if any(label in NPM_HIGH_RISK_SCRIPT_INDICATORS for label in indicators)
+                    else Severity.MEDIUM
+                )
+                result.findings.append(
+                    PatternMatch(
+                        rule_name="Suspicious NPM Lifecycle Script",
+                        severity=severity,
+                        file_path=rel_path,
+                        line_number=line_number,
+                        line_content=line_content[:200],
+                        description=(
+                            f"Lifecycle script '{script_name}' runs suspicious install-time "
+                            f"behavior ({', '.join(indicators[:3])})."
+                        ),
+                        matched_text=f"{script_name}: {command[:120]}",
+                        finding_id=generate_finding_id(
+                            "Suspicious NPM Lifecycle Script",
+                            rel_path,
+                            line_number,
+                            f"{script_name}|{command}",
+                        ),
+                        remediation=(
+                            "Remove network/bootstrap behavior from npm lifecycle hooks. "
+                            "Keep install-time scripts deterministic, local, and auditable."
+                        ),
+                        metadata={
+                            "script_name": script_name,
+                            "execution_path": "install-time",
+                            "indicators": indicators,
+                        },
+                    )
+                )
+
+        for section in NPM_DEPENDENCY_SECTIONS:
+            deps = parsed.get(section)
+            if not isinstance(deps, dict):
+                continue
+            for dep_name, dep_spec in deps.items():
+                if not isinstance(dep_name, str) or not isinstance(dep_spec, str):
+                    continue
+                source_type = self._npm_remote_source_type(dep_spec)
+                if source_type is None:
+                    continue
+
+                line_number = self._find_line_number(
+                    lines,
+                    rf'"{re.escape(dep_name)}"\s*:',
+                )
+                line_content = self._line_at(lines, line_number, fallback=f'"{dep_name}": "{dep_spec}"')
+                normalized_spec = dep_spec.strip().lower()
+                severity = (
+                    Severity.HIGH
+                    if normalized_spec.startswith(("http://", "git://", "git+http://"))
+                    else Severity.MEDIUM
+                )
+                result.findings.append(
+                    PatternMatch(
+                        rule_name="NPM Dependency Remote Source",
+                        severity=severity,
+                        file_path=rel_path,
+                        line_number=line_number,
+                        line_content=line_content[:200],
+                        description=(
+                            f"Dependency '{dep_name}' in '{section}' installs from a remote "
+                            f"source ({source_type}) instead of a pinned registry release."
+                        ),
+                        matched_text=f"{dep_name}@{dep_spec}",
+                        finding_id=generate_finding_id(
+                            "NPM Dependency Remote Source",
+                            rel_path,
+                            line_number,
+                            f"{dep_name}|{section}|{dep_spec}",
+                        ),
+                        remediation=(
+                            "Prefer semver-pinned releases from a trusted npm registry. "
+                            "If a VCS dependency is required, pin a full commit SHA and "
+                            "review provenance before install."
+                        ),
+                        metadata={
+                            "dependency_name": dep_name,
+                            "dependency_section": section,
+                            "dependency_spec": dep_spec,
+                            "source_type": source_type,
+                            "execution_path": "install-time",
+                        },
+                    )
+                )
+
+    def _scan_npmrc_supply_chain(
+        self,
+        rel_path: str,
+        lines: list[str],
+        result: ScanResult,
+    ) -> None:
+        for idx, raw_line in enumerate(lines, start=1):
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith(("#", ";")):
+                continue
+
+            if re.search(r"(?i)^\s*(?:@[^:\s]+:)?registry\s*=\s*http://", raw_line):
+                result.findings.append(
+                    PatternMatch(
+                        rule_name="NPM Registry Uses Plain HTTP",
+                        severity=Severity.HIGH,
+                        file_path=rel_path,
+                        line_number=idx,
+                        line_content=stripped[:200],
+                        description="npm registry configuration uses plain HTTP, allowing package tampering in transit.",
+                        matched_text=stripped[:120],
+                        finding_id=generate_finding_id(
+                            "NPM Registry Uses Plain HTTP",
+                            rel_path,
+                            idx,
+                            stripped,
+                        ),
+                        remediation="Require HTTPS for all npm registry URLs. If you use an internal mirror, enable TLS before publishing this config.",
+                        metadata={"execution_path": "install-time"},
+                    )
+                )
+
+            if re.search(r"(?i)^\s*strict-ssl\s*=\s*false\s*$", raw_line):
+                result.findings.append(
+                    PatternMatch(
+                        rule_name="NPM Strict SSL Disabled",
+                        severity=Severity.HIGH,
+                        file_path=rel_path,
+                        line_number=idx,
+                        line_content=stripped[:200],
+                        description="npm strict SSL verification is disabled, weakening registry authenticity checks.",
+                        matched_text=stripped[:120],
+                        finding_id=generate_finding_id(
+                            "NPM Strict SSL Disabled",
+                            rel_path,
+                            idx,
+                            stripped,
+                        ),
+                        remediation="Set strict-ssl=true and fix the underlying CA or proxy issue instead of disabling TLS validation.",
+                        metadata={"execution_path": "install-time"},
+                    )
+                )
+
+    def _scan_package_lock_supply_chain(
+        self,
+        rel_path: str,
+        content: str,
+        lines: list[str],
+        result: ScanResult,
+    ) -> None:
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(parsed, dict):
+            return
+
+        packages = parsed.get("packages")
+        if isinstance(packages, dict):
+            for path_key, metadata in packages.items():
+                if not path_key or not isinstance(metadata, dict):
+                    continue
+                package_name = self._npm_package_name_from_lock_path(path_key)
+                self._record_node_lockfile_source_finding(
+                    rel_path,
+                    lines,
+                    result,
+                    package_name,
+                    metadata.get("resolved"),
+                    metadata.get("integrity"),
+                )
+            return
+
+        dependencies = parsed.get("dependencies")
+        if isinstance(dependencies, dict):
+            self._scan_package_lock_dependency_tree(rel_path, lines, result, dependencies)
+
+    def _scan_package_lock_dependency_tree(
+        self,
+        rel_path: str,
+        lines: list[str],
+        result: ScanResult,
+        tree: dict[str, object],
+    ) -> None:
+        for dep_name, metadata in tree.items():
+            if not isinstance(metadata, dict):
+                continue
+            self._record_node_lockfile_source_finding(
+                rel_path,
+                lines,
+                result,
+                str(dep_name),
+                metadata.get("resolved"),
+                metadata.get("integrity"),
+            )
+            nested = metadata.get("dependencies")
+            if isinstance(nested, dict):
+                self._scan_package_lock_dependency_tree(rel_path, lines, result, nested)
+
+    def _scan_pnpm_lock_supply_chain(
+        self,
+        rel_path: str,
+        content: str,
+        lines: list[str],
+        result: ScanResult,
+    ) -> None:
+        try:
+            parsed = yaml.safe_load(content) or {}
+        except yaml.YAMLError:
+            return
+        if not isinstance(parsed, dict):
+            return
+
+        packages = parsed.get("packages")
+        if not isinstance(packages, dict):
+            return
+
+        for package_key, metadata in packages.items():
+            if not isinstance(metadata, dict):
+                continue
+            resolution = metadata.get("resolution")
+            if not isinstance(resolution, dict):
+                continue
+            tarball = resolution.get("tarball")
+            integrity = resolution.get("integrity")
+            if not tarball:
+                continue
+            package_name = self._split_pnpm_package_key(str(package_key))[0] or str(package_key)
+            self._record_node_lockfile_source_finding(
+                rel_path,
+                lines,
+                result,
+                package_name,
+                tarball,
+                integrity,
+            )
+
+    def _record_node_lockfile_source_finding(
+        self,
+        rel_path: str,
+        lines: list[str],
+        result: ScanResult,
+        package_name: str,
+        resolved: object,
+        integrity: object,
+    ) -> None:
+        resolved_str = str(resolved or "").strip()
+        if not resolved_str:
+            return
+        integrity_str = str(integrity or "").strip()
+        line_number = self._find_line_number(
+            lines,
+            re.escape(resolved_str),
+            rf"(?:^|/)node_modules/{re.escape(package_name)}",
+            re.escape(package_name),
+        )
+        line_content = self._line_at(lines, line_number, fallback=resolved_str)
+        normalized_resolved = resolved_str.lower()
+
+        if normalized_resolved.startswith(("http://", "git://", "git+http://")):
+            result.findings.append(
+                PatternMatch(
+                    rule_name="Node Lockfile Uses Plain HTTP",
+                    severity=Severity.HIGH,
+                    file_path=rel_path,
+                    line_number=line_number,
+                    line_content=line_content[:200],
+                    description=(
+                        f"Lockfile entry for '{package_name}' resolves over plain HTTP, "
+                        "allowing package tampering in transit."
+                    ),
+                    matched_text=f"{package_name}: {resolved_str[:120]}",
+                    finding_id=generate_finding_id(
+                        "Node Lockfile Uses Plain HTTP",
+                        rel_path,
+                        line_number,
+                        f"{package_name}|{resolved_str}",
+                    ),
+                    remediation="Regenerate the lockfile from a trusted HTTPS registry or tarball source and require integrity hashes on install artifacts.",
+                    metadata={
+                        "dependency_name": package_name,
+                        "resolved_url": resolved_str,
+                        "execution_path": "install-time",
+                    },
+                )
+            )
+            return
+
+        if integrity_str:
+            return
+        if not normalized_resolved.startswith(("https://", "git+https://", "git+ssh://")):
+            return
+
+        result.findings.append(
+            PatternMatch(
+                rule_name="Node Lockfile Missing Integrity",
+                severity=Severity.MEDIUM,
+                file_path=rel_path,
+                line_number=line_number,
+                line_content=line_content[:200],
+                description=(
+                    f"Lockfile entry for '{package_name}' is missing an integrity hash, "
+                    "weakening tamper detection for downloaded artifacts."
+                ),
+                matched_text=f"{package_name}: {resolved_str[:120]}",
+                finding_id=generate_finding_id(
+                    "Node Lockfile Missing Integrity",
+                    rel_path,
+                    line_number,
+                    f"{package_name}|{resolved_str}",
+                ),
+                remediation="Regenerate the lockfile with a modern package manager so every downloaded artifact is pinned by integrity.",
+                metadata={
+                    "dependency_name": package_name,
+                    "resolved_url": resolved_str,
+                    "execution_path": "install-time",
+                },
+            )
+        )
+
+    def _find_line_number(self, lines: list[str], *patterns: str) -> int:
+        """Return the first 1-based line number matching any regex pattern."""
+        compiled = [re.compile(pattern) for pattern in patterns if pattern]
+        if not compiled:
+            return 0
+        for idx, line in enumerate(lines, start=1):
+            for pattern in compiled:
+                if pattern.search(line):
+                    return idx
+        return 0
+
+    def _line_at(self, lines: list[str], line_number: int, *, fallback: str = "") -> str:
+        if line_number > 0 and line_number <= len(lines):
+            return lines[line_number - 1].strip()
+        return fallback.strip()
+
+    def _npm_remote_source_type(self, spec: str) -> str | None:
+        normalized = spec.strip()
+        for source_type, pattern in NPM_REMOTE_SOURCE_PATTERNS:
+            if pattern.search(normalized):
+                return source_type
+        return None
+
+    def _npm_package_name_from_lock_path(self, path_key: str) -> str:
+        match = re.search(r"(?:^|/)node_modules/(@[^/]+/[^/]+|[^/]+)$", path_key)
+        if match:
+            return match.group(1)
+        return path_key.strip() or "(root)"
+
+    def _split_pnpm_package_key(self, package_key: str) -> tuple[str, str]:
+        key = package_key.strip().lstrip("/")
+        if "(" in key:
+            key = key.split("(", 1)[0]
+        if "@" not in key:
+            return "", ""
+        at_index = key.rfind("@")
+        name = key[:at_index].strip()
+        version = key[at_index + 1:].strip()
+        if not name or not version:
+            return "", ""
+        return name, version
 
     def _check_gitignore(self, result: ScanResult) -> None:
         """Check if .gitignore exists and covers common secret patterns."""

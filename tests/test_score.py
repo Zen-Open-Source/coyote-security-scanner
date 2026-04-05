@@ -197,6 +197,10 @@ class TestClassifyFindingRoutesCorrectly(unittest.TestCase):
         f = _make_finding("Dependency Vulnerability", Severity.HIGH)
         self.assertEqual(classify_finding(f), "Dependencies")
 
+    def test_npm_lifecycle_rule_is_dependencies(self) -> None:
+        f = _make_finding("Suspicious NPM Lifecycle Script", Severity.HIGH)
+        self.assertEqual(classify_finding(f), "Dependencies")
+
     def test_entropy_finding_is_secrets(self) -> None:
         f = _make_finding("High Entropy (hex)", Severity.MEDIUM)
         self.assertEqual(classify_finding(f), "Secrets")
@@ -220,6 +224,16 @@ class TestClassifyFindingRoutesCorrectly(unittest.TestCase):
     def test_hardcoded_ip_is_config_hygiene(self) -> None:
         f = _make_finding("Hardcoded Internal IP", Severity.LOW)
         self.assertEqual(classify_finding(f), "Config Hygiene")
+
+
+class TestSupplyChainScanFindingsAffectDependencyScore(unittest.TestCase):
+    def test_scanner_supply_chain_findings_enable_dependency_bucket(self) -> None:
+        findings = [_make_finding("Suspicious NPM Lifecycle Script", Severity.HIGH)]
+        sc = compute_scorecard(repo_path="/tmp/repo", findings=findings, deps_enabled=False)
+
+        deps_cat = next(c for c in sc.categories if c.name == "Dependencies")
+        self.assertTrue(deps_cat.enabled)
+        self.assertEqual(75.0, deps_cat.score)
 
 
 if __name__ == "__main__":
