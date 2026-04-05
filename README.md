@@ -56,6 +56,7 @@ v1.5.0
 ## Features
 
 ### Repository Scanning
+- **NPM Supply-Chain Heuristics**: Flag suspicious lifecycle hooks, remote dependency sources, insecure `.npmrc` settings, and Node lockfile entries that rely on plain HTTP or omit integrity hashes
 - **Comprehensive Detection**: Secrets, credentials, sensitive files, and security anti-patterns
 - **Entropy Detection**: Find high-randomness strings that are likely secrets (custom tokens, passwords)
 - **Git History Scanning**: Detect secrets in past commits, even if later "removed"
@@ -68,7 +69,6 @@ v1.5.0
 - **SARIF Output**: GitHub Code Scanning compatible output for CI/CD integration
 - **Attack Path Analysis**: Chain findings into exploitable attack paths with composite severity scores and blast radius descriptions
 - **Dependency Vulnerability Scanning**: Scan lockfiles/manifests, flag known vulnerable package versions, classify Python/JS packages as `reachable`, `direct-unused`, `transitive-only`, or `unknown`, and detect built-in supply-chain threat intel such as the March 31, 2026 Axios npm compromise
-- **NPM Supply-Chain Heuristics**: Flag suspicious lifecycle hooks, remote dependency sources, insecure `.npmrc` settings, and Node lockfile entries that rely on plain HTTP or omit integrity hashes
 - **SBOM Generation**: Generate CycloneDX v1.5 JSON Software Bill of Materials from dependency manifests
 - **OpenClaw CVE Detection**: Detects 15 OpenClaw CVEs across gateway, runtime, UI, and packaging attack surfaces
 - **Langflow CVE Detection**: Detects CVE-2025-3248 and CVE-2025-34291 with version + config precondition checks
